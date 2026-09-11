@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="<%= page?.description || 'Tesnow — A modern content platform.' %>">
+    <meta name="robots" content="<%= page?.robots || 'index,follow' %>">
+    <title><%= page?.title || 'Tesnow' %></title>
+
+    <% if (page?.canonicalUrl) { %>
+        <link rel="canonical" href="<%= page.canonicalUrl %>">
+    <% } %>
+
+    <link rel="stylesheet" href="/assets/css/home.css">
+</head>
+
+<body>
+    <header class="site-header">
+        <div class="container">
+            <a class="brand" href="/">Tesnow</a>
+
+            <nav class="main-nav" aria-label="Primary navigation">
+                <a href="/">Home</a>
+                <a href="/posts">Posts</a>
+                <a href="/about">About</a>
+                <a href="/contact">Contact</a>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        <section class="hero">
+            <div class="container">
+                <p class="eyebrow">WELCOME TO TESNOW</p>
+
+                <h1>Ideas, stories and knowledge that matter.</h1>
+
+                <p class="hero-description">
+                    Discover thoughtful articles, useful insights and fresh perspectives.
+                </p>
+
+                <div class="hero-actions">
+                    <a class="button button-primary" href="/posts">Explore Posts</a>
+                    <a class="button button-secondary" href="/about">Learn More</a>
+                </div>
+            </div>
+        </section>
+
+        <section class="content-section" aria-labelledby="latest-heading">
+            <div class="container">
+                <div class="section-heading">
+                    <p class="eyebrow">LATEST</p>
+                    <h2 id="latest-heading">Latest Posts</h2>
+                </div>
+
+                <% if (Array.isArray(latestPosts) && latestPosts.length > 0) { %>
+                    <div class="post-grid">
+                        <% latestPosts.forEach((post) => { %>
+                            <article class="post-card">
+                                <h3>
+                                    <a href="<%= post.url || ('/post/' + post.slug) %>">
+                                        <%= post.title || 'Untitled Post' %>
+                                    </a>
+                                </h3>
+
+                                <% if (post.excerpt) { %>
+                                    <p><%= post.excerpt %></p>
+                                <% } %>
+                            </article>
+                        <% }) %>
+                    </div>
+                <% } else { %>
+                    <div class="empty-state">
+                        <h3>No posts yet</h3>
+                        <p>New articles will appear here soon.</p>
+                    </div>
+                <% } %>
+            </div>
+        </section>
+
+        <section class="content-section categories-section" aria-labelledby="categories-heading">
+            <div class="container">
+                <div class="section-heading">
+                    <p class="eyebrow">DISCOVER</p>
+                    <h2 id="categories-heading">Categories</h2>
+                </div>
+
+                <% if (Array.isArray(categories) && categories.length > 0) { %>
+                    <div class="category-grid">
+                        <% categories.forEach((category) => { %>
+                            <a class="category-card" href="<%= category.url || ('/category/' + category.slug) %>">
+                                <h3><%= category.name || 'Category' %></h3>
+                            </a>
+                        <% }) %>
+                    </div>
+                <% } else { %>
+                    <div class="empty-state">
+                        <h3>Categories coming soon</h3>
+                        <p>Explore organized content as the platform grows.</p>
+                    </div>
+                <% } %>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <div class="container">
+            <p>&copy; <%= new Date().getFullYear() %> Tesnow. All rights reserved.</p>
+        </div>
+    </footer>
+</body>
+</html>

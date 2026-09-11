@@ -1,0 +1,1603 @@
+===== ADMIN CATEGORY ROUTES =====
+ * POST /posts/:id/schedule
+ * Schedule a post
+ * Future: authentication, admin authorization, validation, CSRF, controller
+ */
+router.post(
+  '/posts/:id/schedule',
+  authorizePermission('post.schedule'),
+  async (req, res, next) => {
+    sendError(res, new Error('Schedule post not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Schedule post endpoint is under development',
+    });
+  }
+);
+
+/**
+ * POST /posts/:id/restore
+ * Restore post from trash
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.post(
+  '/posts/:id/restore',
+  authorizePermission('post.restore'),
+  async (req, res, next) => {
+    sendError(res, new Error('Restore post not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Restore post endpoint is under development',
+    });
+  }
+);
+
+/**
+ * POST /posts/:id/revisions/:revisionId/restore
+ * Restore a specific revision
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.post(
+  '/posts/:id/revisions/:revisionId/restore',
+  authorizePermission('post.restore'),
+  async (req, res, next) => {
+    sendError(res, new Error('Restore revision not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Restore revision endpoint is under development',
+    });
+  }
+);
+
+// ============================================================================
+// CATEGORY MANAGEMENT ROUTES
+// ============================================================================
+
+/**
+ * GET /categories
+ * List categories
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  '/categories',
+  authorizePermission('category.read'),
+  async (req, res, next) => {
+    sendError(res, new Error('Get categories not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Categories endpoint is under development',
+    });
+  }
+);
+
+/**
+ * GET /categories/new
+ * New category form
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  '/categories/new',
+  authorizePermission('category.create'),
+  async (req, res, next) => {
+    sendError(res, new Error('New category form not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'New category form is under development',
+    });
+  }
+);
+
+/**
+ * GET /categories/:id/edit
+ * Edit category form
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  '/categories/:id/edit',
+  authorizePermission('category.update'),
+  async (req, res, next) => {
+    sendError(res, new Error('Edit category form not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Edit category form is under development',
+    });
+  }
+);
+
+/**
+ * POST /categories
+ * Create a category
+ * Future: authentication, admin authorization, validation, CSRF, controller
+ */
+router.post(
+  '/categories',
+  authorizePermission('category.create'),
+  async (req, res, next) => {
+    sendError(res, new Error('Create category not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Create category endpoint is under development',
+    });
+  }
+);
+
+/**
+ * PATCH /categories/:id
+ * Update a category
+ * Future: authentication, admin authorization, validation, CSRF, controller
+ */
+router.patch(
+  '/categories/:id',
+  authorizePermission('category.update'),
+  async (req, res, next) => {
+    sendError(res, new Error('Update category not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Update category endpoint is under development',
+    });
+  }
+);
+
+/**
+ * DELETE /categories/:id
+ * Delete a category
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.delete(
+  '/categories/:id',
+  authorizePermission('category.delete'),
+  async (req, res, next) => {
+    sendError(res, new Error('Delete category not yet implemented'), {
+
+===== CATEGORY VALIDATOR: QUERY/PARAMS =====
+            'required',
+        );
+    }
+
+    const parentId = hasOwn(input, 'parentId')
+        ? normalizeBodyParentId(input.parentId)
+        : null;
+
+    const name = normalizeName(input.name);
+    const slug = normalizeSlug(input.slug);
+
+    const description = hasOwn(input, 'description')
+        ? normalizeDescription(input.description)
+        : null;
+
+    const sortOrder = hasOwn(input, 'sortOrder')
+        ? normalizeSortOrder(input.sortOrder)
+        : 0;
+
+    const isActive = hasOwn(input, 'isActive')
+        ? normalizeBoolean(input.isActive, 'isActive')
+        : true;
+
+    return {
+        parentId,
+        name,
+        slug,
+        description,
+        sortOrder,
+        isActive,
+    };
+}
+
+/**
+ * Validate update-category request body.
+ *
+ * PATCH semantics:
+ *   - only supplied fields are returned
+ *   - undefined values are omitted
+ *   - empty object is valid and represents a no-op
+ *
+ * @param {*} input
+ * @returns {object}
+ */
+export function updateCategoryBody(input) {
+    if (!isPlainObject(input)) {
+        throw fail(
+            'Request body must be a plain object',
+            undefined,
+            'invalid_type',
+        );
+    }
+
+    for (const key of Object.keys(input)) {
+        if (!UPDATE_ALLOWED_FIELD_SET.has(key)) {
+            throw fail(
+                'Unknown field supplied',
+                key,
+                'unknown_field',
+            );
+        }
+    }
+
+    const patch = {};
+
+    if (hasOwn(input, 'parentId') && input.parentId !== undefined) {
+        patch.parentId = normalizeBodyParentId(input.parentId);
+    }
+
+    if (hasOwn(input, 'name') && input.name !== undefined) {
+        patch.name = normalizeName(input.name);
+    }
+
+    if (hasOwn(input, 'slug') && input.slug !== undefined) {
+        patch.slug = normalizeSlug(input.slug);
+    }
+
+    if (
+        hasOwn(input, 'description') &&
+        input.description !== undefined
+    ) {
+        patch.description = normalizeDescription(
+            input.description,
+        );
+    }
+
+    if (
+        hasOwn(input, 'sortOrder') &&
+        input.sortOrder !== undefined
+    ) {
+        patch.sortOrder = normalizeSortOrder(
+            input.sortOrder,
+        );
+    }
+
+    if (
+        hasOwn(input, 'isActive') &&
+        input.isActive !== undefined
+    ) {
+        patch.isActive = normalizeBoolean(
+            input.isActive,
+            'isActive',
+        );
+    }
+
+    return patch;
+}
+
+// ----------------------------------------------------------------------------
+// ROUTE PARAM VALIDATORS
+// ----------------------------------------------------------------------------
+
+/**
+ * Validate category ID route parameter.
+ *
+ * IMPORTANT:
+ * This validator accepts the raw route value directly:
+ *
+ *   categoryIdParam(req.params.id)
+ *
+ * It does NOT accept the complete params object.
+ *
+ * @param {*} value
+ * @returns {number}
+ */
+export function categoryIdParam(value) {
+    if (
+        typeof value !== 'string' ||
+        !POSITIVE_INT_STRING_PATTERN.test(value)
+    ) {
+        throw fail(
+            'id must be a positive integer',
+            'id',
+            'invalid_format',
+        );
+    }
+
+    const parsed = Number(value);
+
+    if (!Number.isSafeInteger(parsed)) {
+        throw fail(
+            'id is out of range',
+            'id',
+            'invalid_range',
+        );
+    }
+
+    return parsed;
+}
+
+/**
+ * Validate UUID route parameter.
+ *
+ * IMPORTANT:
+ * This validator accepts the raw route value directly.
+ *
+ * @param {*} value
+ * @returns {string}
+ */
+export function categoryUuidParam(value) {
+    if (typeof value !== 'string' || !UUID_PATTERN.test(value)) {
+        throw fail(
+            'uuid must be a valid UUID',
+            'uuid',
+            'invalid_format',
+        );
+    }
+
+    return value.toLowerCase();
+}
+
+/**
+ * Validate category slug route parameter.
+ *
+ * IMPORTANT:
+ * This validator accepts the raw route value directly.
+ *
+ * @param {*} value
+ * @returns {string}
+ */
+export function categorySlugParam(value) {
+    return normalizeSlug(value);
+}
+
+// ----------------------------------------------------------------------------
+// QUERY VALIDATORS
+// ----------------------------------------------------------------------------
+
+/**
+ * Validate public category list query.
+ *
+ * Unknown query parameters are ignored.
+ *
+ * @param {*} query
+ * @returns {{
+ *   parentId: number|null|undefined,
+ *   limit: number,
+ *   offset: number,
+ *   ordering: string
+ * }}
+ */
+export function listPublicCategoriesQuery(query) {
+    const normalizedQuery = isPlainObject(query) ? query : {};
+
+    const parentId = normalizeParentIdQuery(
+        hasOwn(normalizedQuery, 'parentId')
+            ? normalizedQuery.parentId
+            : undefined,
+    );
+
+    const pagination =
+        normalizePaginationQuery(normalizedQuery);
+
+    const result = {
+        limit: pagination.limit,
+        offset: pagination.offset,
+        ordering: pagination.ordering,
+    };
+
+    if (parentId !== undefined) {
+        result.parentId = parentId;
+    }
+
+    return result;
+}
+
+/**
+ * Validate admin category list query.
+ *
+ * Unknown query parameters are ignored.
+ *
+ * @param {*} query
+ * @returns {{
+ *   parentId: number|null|undefined,
+ *   isActive: boolean|undefined,
+ *   includeDeleted: boolean,
+ *   limit: number,
+ *   offset: number,
+ *   ordering: string
+ * }}
+ */
+export function listAdminCategoriesQuery(query) {
+    const normalizedQuery = isPlainObject(query) ? query : {};
+
+    const parentId = normalizeParentIdQuery(
+        hasOwn(normalizedQuery, 'parentId')
+            ? normalizedQuery.parentId
+            : undefined,
+    );
+
+    const isActive = normalizeIsActiveQuery(
+        normalizedQuery,
+    );
+
+    const includeDeleted = normalizeIncludeDeletedQuery(
+        normalizedQuery,
+    );
+
+    const pagination =
+        normalizePaginationQuery(normalizedQuery);
+
+    const result = {
+        includeDeleted,
+        limit: pagination.limit,
+        offset: pagination.offset,
+        ordering: pagination.ordering,
+    };
+
+    if (parentId !== undefined) {
+        result.parentId = parentId;
+    }
+
+    if (isActive !== undefined) {
+        result.isActive = isActive;
+    }
+
+    return result;
+}
+
+/**
+ * Validate admin category count query.
+ *
+ * @param {*} query
+ * @returns {{
+ *   parentId: number|null|undefined,
+ *   isActive: boolean|undefined,
+ *   includeDeleted: boolean
+ * }}
+ */
+export function countAdminCategoriesQuery(query) {
+    const normalizedQuery = isPlainObject(query) ? query : {};
+
+    const parentId = normalizeParentIdQuery(
+        hasOwn(normalizedQuery, 'parentId')
+            ? normalizedQuery.parentId
+            : undefined,
+    );
+
+    const isActive = normalizeIsActiveQuery(
+        normalizedQuery,
+    );
+
+    const includeDeleted = normalizeIncludeDeletedQuery(
+        normalizedQuery,
+    );
+
+    const result = {
+        includeDeleted,
+    };
+
+    if (parentId !== undefined) {
+        result.parentId = parentId;
+    }
+
+    if (isActive !== undefined) {
+        result.isActive = isActive;
+    }
+
+    return result;
+}
+
+// ----------------------------------------------------------------------------
+// DEFAULT EXPORT
+// ----------------------------------------------------------------------------
+
+export default {
+    createCategoryBody,
+    updateCategoryBody,
+
+    categoryIdParam,
+    categoryUuidParam,
+    categorySlugParam,
+
+    listPublicCategoriesQuery,
+    listAdminCategoriesQuery,
+    countAdminCategoriesQuery,
+};
+===== CATEGORY CONTROLLER: REMAINING =====
+                data: { count },
+                message: 'Category count retrieved successfully',
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // ADMIN WRITES
+    // -------------------------------------------------------------------------
+
+    /**
+     * POST /admin/categories
+     */
+    async function createCategory(req, res, next) {
+        try {
+            const body = readInput(req, 'body');
+
+            const result =
+                await categoryService.createCategory(body);
+
+            return sendCreated(
+                res,
+                result,
+                'Category created successfully'
+            );
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /**
+     * PATCH /admin/categories/:id
+     */
+    async function updateCategory(req, res, next) {
+        try {
+            const id = readParam(req, 'id');
+            const body = readInput(req, 'body');
+
+            const result =
+                await categoryService.updateCategory(id, body);
+
+            return sendSuccess(res, {
+                data: result,
+                message: 'Category updated successfully',
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /**
+     * DELETE /admin/categories/:id
+     */
+    async function deleteCategory(req, res, next) {
+        try {
+            const id = readParam(req, 'id');
+
+            const result =
+                await categoryService.deleteCategory(id);
+
+            return sendSuccess(res, {
+                data: result,
+                message: 'Category deleted successfully',
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /**
+     * POST /admin/categories/:id/restore
+     */
+    async function restoreCategory(req, res, next) {
+        try {
+            const id = readParam(req, 'id');
+
+            const result =
+                await categoryService.restoreCategory(id);
+
+            return sendSuccess(res, {
+                data: result,
+                message: 'Category restored successfully',
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /**
+     * POST /admin/categories/:id/activate
+     */
+    async function activateCategory(req, res, next) {
+        try {
+            const id = readParam(req, 'id');
+
+            const result =
+                await categoryService.activateCategory(id);
+
+            return sendSuccess(res, {
+                data: result,
+                message: 'Category activated successfully',
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /**
+     * POST /admin/categories/:id/deactivate
+     */
+    async function deactivateCategory(req, res, next) {
+        try {
+            const id = readParam(req, 'id');
+
+            const result =
+                await categoryService.deactivateCategory(id);
+
+            return sendSuccess(res, {
+                data: result,
+                message: 'Category deactivated successfully',
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // PUBLIC API
+    // -------------------------------------------------------------------------
+
+    return Object.freeze({
+        // Public
+        listPublicCategories,
+        getPublicCategoryBySlug,
+        getPublicCategoryByUuid,
+        countPublicCategories,
+
+        // Admin reads
+        listAdminCategories,
+        getAdminCategory,
+        getAdminCategoryByUuid,
+        countAdminCategories,
+
+        // Admin writes
+        createCategory,
+        updateCategory,
+        deleteCategory,
+        restoreCategory,
+        activateCategory,
+        deactivateCategory,
+    });
+}
+
+export default createCategoryController;
+===== CATEGORY SERVICE: PUBLIC/ADMIN METHODS =====
+            throw new NotFoundError(
+                'Category not found'
+            );
+        }
+
+        const activeChildren =
+            await repository.countActiveChildren(id);
+
+        if (activeChildren > 0) {
+            throw new ConflictError(
+                'Category has active child categories; move or delete them first'
+            );
+        }
+
+        const affected =
+            await repository.softDeleteById(id);
+
+        if (affected === 0) {
+            throw new ConflictError(
+                'Category was already deleted'
+            );
+        }
+
+        const deleted =
+            await loadAdmin(
+                repository,
+                id,
+                { includeDeleted: true }
+            );
+
+        if (!deleted) {
+            throw new ConflictError(
+                'Category could not be loaded after deletion'
+            );
+        }
+
+        return deleted;
+    }
+
+    // ------------------------------------------------------------------------
+    // RESTORE
+    // ------------------------------------------------------------------------
+
+    /**
+     * Restore a soft-deleted category.
+     *
+     * Restore does not activate the category.
+     *
+     * @param {number} id
+     * @returns {Promise<object>}
+     */
+    async function restoreCategory(id) {
+        const current =
+            await loadAdmin(
+                repository,
+                id,
+                { includeDeleted: true }
+            );
+
+        if (!current) {
+            throw new NotFoundError(
+                'Category not found'
+            );
+        }
+
+        if (!isDeleted(current)) {
+            throw new ConflictError(
+                'Category is not deleted'
+            );
+        }
+
+        if (
+            current.parent_id !== null &&
+            current.parent_id !== undefined
+        ) {
+            const parent =
+                await loadAdmin(
+                    repository,
+                    current.parent_id,
+                    { includeDeleted: true }
+                );
+
+            if (!parent) {
+                throw new ConflictError(
+                    'Parent category no longer exists; move this category to root before restoring'
+                );
+            }
+
+            if (isDeleted(parent)) {
+                throw new ConflictError(
+                    'Parent category is deleted; restore the parent first or move this category to root'
+                );
+            }
+        }
+
+        const affected =
+            await repository.restoreById(id);
+
+        if (affected === 0) {
+            throw new ConflictError(
+                'Category was already restored'
+            );
+        }
+
+        const restored =
+            await loadAdmin(
+                repository,
+                id,
+                { includeDeleted: true }
+            );
+
+        if (!restored) {
+            throw new ConflictError(
+                'Category could not be loaded after restoration'
+            );
+        }
+
+        return restored;
+    }
+
+    // ------------------------------------------------------------------------
+    // ACTIVATE
+    // ------------------------------------------------------------------------
+
+    /**
+     * Activate a non-deleted category.
+     *
+     * Non-root categories require an active parent.
+     *
+     * @param {number} id
+     * @returns {Promise<object>}
+     */
+    async function activateCategory(id) {
+        const current =
+            await loadAdmin(repository, id);
+
+        if (!current) {
+            throw new NotFoundError(
+                'Category not found'
+            );
+        }
+
+        if (isActive(current)) {
+            throw new ConflictError(
+                'Category is already active'
+            );
+        }
+
+        if (
+            current.parent_id !== null &&
+            current.parent_id !== undefined
+        ) {
+            const parent =
+                await loadAdmin(
+                    repository,
+                    current.parent_id,
+                    { includeDeleted: true }
+                );
+
+            if (!parent) {
+                throw new ConflictError(
+                    'Parent category is missing; cannot activate'
+                );
+            }
+
+            if (isDeleted(parent)) {
+                throw new ConflictError(
+                    'Parent category is deleted; cannot activate'
+                );
+            }
+
+            if (!isActive(parent)) {
+                throw new ConflictError(
+                    'Parent category is inactive; activate the parent first'
+                );
+            }
+        }
+
+        const affected =
+            await repository.updateById(
+                id,
+                { isActive: true }
+            );
+
+        if (affected === 0) {
+            throw new ConflictError(
+                'Category was modified concurrently; please retry'
+            );
+        }
+
+        const activated =
+            await loadAdmin(repository, id);
+
+        if (!activated) {
+            throw new ConflictError(
+                'Category could not be loaded after activation'
+            );
+        }
+
+        return activated;
+    }
+
+    // ------------------------------------------------------------------------
+    // DEACTIVATE
+    // ------------------------------------------------------------------------
+
+    /**
+     * Deactivate a non-deleted category.
+     *
+     * @param {number} id
+     * @returns {Promise<object>}
+     */
+    async function deactivateCategory(id) {
+        const current =
+            await loadAdmin(
+                repository,
+                id,
+                { includeDeleted: true }
+            );
+
+        if (!current) {
+            throw new NotFoundError(
+                'Category not found'
+            );
+        }
+
+        if (!isActive(current)) {
+            throw new ConflictError(
+                'Category is already inactive'
+            );
+        }
+
+        if (isDeleted(current)) {
+            throw new ConflictError(
+                'Deleted categories cannot be modified'
+            );
+        }
+
+        const affected =
+            await repository.updateById(
+                id,
+                { isActive: false }
+            );
+
+        if (affected === 0) {
+            throw new ConflictError(
+                'Category was modified concurrently; please retry'
+            );
+        }
+
+        const deactivated =
+            await loadAdmin(repository, id);
+
+        if (!deactivated) {
+            throw new ConflictError(
+                'Category could not be loaded after deactivation'
+            );
+        }
+
+        return deactivated;
+    }
+
+    // ------------------------------------------------------------------------
+    // PUBLIC READS
+    // ------------------------------------------------------------------------
+
+    /**
+     * List publicly visible categories.
+     *
+     * @param {object} [options]
+     * @returns {Promise<object[]>}
+     */
+    async function listPublicCategories(
+        options = {}
+    ) {
+        return repository.findPublicActive(
+            options
+        );
+    }
+
+    /**
+     * Get a public category by slug.
+     *
+     * @param {string} slug
+     * @returns {Promise<object>}
+     */
+    async function getPublicCategoryBySlug(
+        slug
+    ) {
+        const row =
+            await repository.findPublicBySlug(
+                slug
+            );
+
+        if (!row) {
+            throw new NotFoundError(
+                'Category not found'
+            );
+        }
+
+        return row;
+    }
+
+    /**
+     * Get a public category by UUID.
+     *
+     * @param {string} uuid
+     * @returns {Promise<object>}
+     */
+    async function getPublicCategoryByUuid(
+        uuid
+    ) {
+        const row =
+            await repository.findPublicByUuid(
+                uuid
+            );
+
+        if (!row) {
+            throw new NotFoundError(
+                'Category not found'
+            );
+        }
+
+        return row;
+    }
+
+    /**
+     * Count publicly visible categories.
+     *
+     * @returns {Promise<number>}
+     */
+    async function countPublicCategories() {
+        return repository.countPublicActive();
+    }
+
+    // ------------------------------------------------------------------------
+    // ADMIN READS
+    // ------------------------------------------------------------------------
+
+    /**
+     * List categories for administrative views.
+     *
+     * @param {object} [options]
+     * @returns {Promise<object[]>}
+     */
+    async function listAdminCategories(
+        options = {}
+    ) {
+        return repository.findAdminList(
+            options
+        );
+    }
+
+    /**
+     * Get an admin category by numeric ID.
+     *
+     * @param {number} id
+     * @param {{includeDeleted?: boolean}} [options]
+     * @returns {Promise<object>}
+     */
+    async function getAdminCategory(
+        id,
+        options = {}
+    ) {
+        const row =
+            await repository.findAdminById(
+                id,
+                options
+            );
+
+        if (!row) {
+            throw new NotFoundError(
+                'Category not found'
+            );
+        }
+
+        return row;
+    }
+
+    /**
+     * Get an admin category by UUID.
+     *
+     * @param {string} uuid
+     * @param {{includeDeleted?: boolean}} [options]
+     * @returns {Promise<object>}
+     */
+    async function getAdminCategoryByUuid(
+        uuid,
+        options = {}
+    ) {
+        const row =
+            await repository.findAdminByUuid(
+                uuid,
+                options
+            );
+
+        if (!row) {
+            throw new NotFoundError(
+                'Category not found'
+            );
+        }
+
+        return row;
+    }
+
+    /**
+     * Count categories for administrative dashboards.
+     *
+     * @param {object} [options]
+     * @returns {Promise<number>}
+     */
+    async function countAdminCategories(
+        options = {}
+    ) {
+        return repository.countAdmin(
+            options
+        );
+    }
+
+    // ------------------------------------------------------------------------
+    // FROZEN PUBLIC API
+    // ------------------------------------------------------------------------
+
+    return Object.freeze({
+        // Writes
+        createCategory,
+        updateCategory,
+        deleteCategory,
+        restoreCategory,
+        activateCategory,
+        deactivateCategory,
+
+        // Public reads
+        listPublicCategories,
+        getPublicCategoryBySlug,
+        getPublicCategoryByUuid,
+        countPublicCategories,
+
+        // Admin reads
+        listAdminCategories,
+        getAdminCategory,
+        getAdminCategoryByUuid,
+        countAdminCategories,
+    });
+}
+
+export default createCategoryService;
+===== RESPONSE: REMAINING =====
+    if (!canSendResponse(res)) {
+        return res;
+    }
+    
+    // Set status to 204 and end without body
+    return res.status(HTTP_STATUS.NO_CONTENT).send();
+}
+
+/**
+ * Send a paginated response
+ * @param {import('express').Response} res - Express response
+ * @param {Object} options - Response options
+ * @param {*} options.data - Paginated data items
+ * @param {Object} options.pagination - Pagination metadata
+ * @param {number} options.pagination.page - Current page
+ * @param {number} options.pagination.limit - Items per page
+ * @param {number} options.pagination.total - Total items
+ * @param {number} options.pagination.totalPages - Total pages
+ * @param {boolean} options.pagination.hasNext - Has next page
+ * @param {boolean} options.pagination.hasPrevious - Has previous page
+ * @param {string} options.message - Success message
+ * @param {Object} options.meta - Additional metadata
+ * @returns {import('express').Response} Express response
+ */
+export function sendPaginated(res, options = {}) {
+    const {
+        data = null,
+        pagination = null,
+        message = 'Data retrieved successfully',
+        meta = null,
+    } = options;
+    
+    // Build meta with pagination
+    const responseMeta = {
+        ...(meta || {}),
+    };
+    
+    if (pagination && typeof pagination === 'object') {
+        const { page, limit, total, totalPages, hasNext, hasPrevious } = pagination;
+        
+        responseMeta.pagination = {
+            page: typeof page === 'number' ? page : 1,
+            limit: typeof limit === 'number' ? limit : 20,
+            total: typeof total === 'number' ? total : 0,
+            totalPages: typeof totalPages === 'number' ? totalPages : 0,
+            hasNext: typeof hasNext === 'boolean' ? hasNext : false,
+            hasPrevious: typeof hasPrevious === 'boolean' ? hasPrevious : false,
+        };
+    }
+    
+    return sendSuccess(res, {
+        statusCode: HTTP_STATUS.OK,
+        data,
+        message,
+        meta: responseMeta,
+    });
+}
+
+// ----------------------------------------------------------------------------
+// 4. ERROR RESPONSE
+// ----------------------------------------------------------------------------
+
+/**
+ * Send an error response
+ * @param {import('express').Response} res - Express response
+ * @param {Error|AppError|*} error - Error to send
+ * @param {Object} options - Response options
+ * @param {number} options.statusCode - HTTP status code (overrides error)
+ * @param {string} options.message - Error message (overrides error)
+ * @param {string} options.code - Error code (overrides error)
+ * @param {Object} options.details - Error details (overrides error)
+ * @param {string} options.requestId - Request ID (overrides context)
+ * @param {string} options.correlationId - Correlation ID (overrides context)
+ * @param {boolean} options.development - Development mode (overrides environment)
+ * @param {boolean} options.includeStack - Include stack trace (development only)
+ * @param {boolean} options.includeCause - Include error cause (development only)
+ * @param {string} options.fallbackMessage - Fallback message if error has no message
+ * @returns {import('express').Response} Express response
+ */
+export function sendError(res, error, options = {}) {
+    // Default options
+    const {
+        statusCode: overrideStatusCode = null,
+        message: overrideMessage = null,
+        code: overrideCode = null,
+        details: overrideDetails = null,
+        requestId: providedRequestId = null,
+        correlationId: providedCorrelationId = null,
+        development = process.env.NODE_ENV === 'development',
+        includeStack = false,
+        includeCause = false,
+        fallbackMessage = DEFAULT_ERROR_MESSAGE,
+    } = options;
+    
+    // Check if response can be sent
+    if (!canSendResponse(res)) {
+        return res;
+    }
+    
+    // Get request IDs
+    const requestId = providedRequestId || getRequestIdFromContext();
+    const correlationId = providedCorrelationId || getCorrelationIdFromContext();
+    
+    // Normalize the error
+    let normalizedError;
+    try {
+        normalizedError = normalizeError(error, { requestId });
+    } catch {
+        // If normalization fails, create a safe fallback
+        normalizedError = new AppError(DEFAULT_ERROR_MESSAGE, {
+            code: 'INTERNAL_SERVER_ERROR',
+            statusCode: 500,
+            isOperational: false,
+        });
+    }
+    
+    // Apply overrides
+    const effectiveStatusCode = overrideStatusCode !== null 
+        ? validateStatusCode(overrideStatusCode, normalizedError.statusCode || 500)
+        : validateStatusCode(normalizedError.statusCode || 500, 500);
+    
+    const effectiveCode = overrideCode || normalizedError.code || 'INTERNAL_SERVER_ERROR';
+    const effectiveMessage = overrideMessage || normalizedError.message || fallbackMessage;
+    const effectiveDetails = overrideDetails || normalizedError.details || null;
+    
+    // Determine if we should include development information
+    const isDevelopment = development || process.env.NODE_ENV === 'development';
+    const showStack = isDevelopment && includeStack;
+    const showCause = isDevelopment && includeCause;
+    
+    // Build safe error response
+    const responseBody = {
+        success: false,
+        error: {
+            code: effectiveCode,
+            message: sanitizeMessage(effectiveMessage, fallbackMessage),
+        },
+    };
+    
+    // Add details if present and safe
+    if (effectiveDetails && typeof effectiveDetails === 'object') {
+        const sanitizedDetails = safeSerialize(effectiveDetails);
+        if (sanitizedDetails && Object.keys(sanitizedDetails).length > 0) {
+            responseBody.error.details = sanitizedDetails;
+        }
+    }
+    
+    // Add request ID
+    if (requestId) {
+        responseBody.requestId = requestId;
+    }
+    
+    // Add correlation ID
+    if (correlationId) {
+        responseBody.correlationId = correlationId;
+    }
+    
+    // Development-only information
+    if (isDevelopment) {
+        if (showStack && normalizedError.stack) {
+            responseBody.error.stack = normalizedError.stack;
+        }
+        
+        if (showCause && normalizedError.cause) {
+            responseBody.error.cause = normalizedError.cause instanceof Error
+                ? {
+                    name: normalizedError.cause.name,
+                    message: normalizedError.cause.message,
+                    stack: normalizedError.cause.stack,
+                }
+                : normalizedError.cause;
+        }
+        
+        // Add error type for debugging
+        responseBody.error.type = normalizedError.name || 'Error';
+        responseBody.error.isOperational = normalizedError.isOperational !== false;
+    }
+    
+    // Set request ID header if available
+    if (requestId) {
+        res.setHeader('X-Request-ID', requestId);
+    }
+    
+    // Send error response
+    return res.status(effectiveStatusCode).json(responseBody);
+}
+
+/**
+ * Send a bad request error (400)
+ * @param {import('express').Response} res - Express response
+ * @param {string} message - Error message
+ * @param {Object} details - Error details
+ * @param {Object} options - Additional options
+ * @returns {import('express').Response} Express response
+ */
+export function sendBadRequest(res, message = 'Bad request', details = null, options = {}) {
+    return sendError(res, new AppError(message, {
+        code: 'BAD_REQUEST',
+        statusCode: HTTP_STATUS.BAD_REQUEST,
+        isOperational: true,
+        details,
+    }), options);
+}
+
+/**
+ * Send an unauthorized error (401)
+ * @param {import('express').Response} res - Express response
+ * @param {string} message - Error message
+ * @param {Object} details - Error details
+ * @param {Object} options - Additional options
+ * @returns {import('express').Response} Express response
+ */
+export function sendUnauthorized(res, message = 'Authentication required', details = null, options = {}) {
+    return sendError(res, new AppError(message, {
+        code: 'UNAUTHORIZED',
+        statusCode: HTTP_STATUS.UNAUTHORIZED,
+        isOperational: true,
+        details,
+    }), options);
+}
+
+/**
+ * Send a forbidden error (403)
+ * @param {import('express').Response} res - Express response
+ * @param {string} message - Error message
+ * @param {Object} details - Error details
+ * @param {Object} options - Additional options
+ * @returns {import('express').Response} Express response
+ */
+export function sendForbidden(res, message = 'Access denied', details = null, options = {}) {
+    return sendError(res, new AppError(message, {
+        code: 'FORBIDDEN',
+        statusCode: HTTP_STATUS.FORBIDDEN,
+        isOperational: true,
+        details,
+    }), options);
+}
+
+/**
+ * Send a not found error (404)
+ * @param {import('express').Response} res - Express response
+ * @param {string} message - Error message
+ * @param {Object} details - Error details
+ * @param {Object} options - Additional options
+ * @returns {import('express').Response} Express response
+ */
+export function sendNotFound(res, message = 'Resource not found', details = null, options = {}) {
+    return sendError(res, new AppError(message, {
+        code: 'NOT_FOUND',
+        statusCode: HTTP_STATUS.NOT_FOUND,
+        isOperational: true,
+        details,
+    }), options);
+}
+
+/**
+ * Send a conflict error (409)
+ * @param {import('express').Response} res - Express response
+ * @param {string} message - Error message
+ * @param {Object} details - Error details
+ * @param {Object} options - Additional options
+ * @returns {import('express').Response} Express response
+ */
+export function sendConflict(res, message = 'Resource conflict', details = null, options = {}) {
+    return sendError(res, new AppError(message, {
+        code: 'CONFLICT',
+        statusCode: HTTP_STATUS.CONFLICT,
+        isOperational: true,
+        details,
+    }), options);
+}
+
+/**
+ * Send a validation error (422)
+ * @param {import('express').Response} res - Express response
+ * @param {string} message - Error message
+ * @param {Object} details - Validation error details
+ * @param {Object} options - Additional options
+ * @returns {import('express').Response} Express response
+ */
+export function sendValidationError(res, message = 'Validation failed', details = null, options = {}) {
+    return sendError(res, new AppError(message, {
+        code: 'VALIDATION_ERROR',
+        statusCode: HTTP_STATUS.UNPROCESSABLE_ENTITY,
+        isOperational: true,
+        details,
+    }), options);
+}
+
+/**
+ * Send a rate limit error (429)
+ * @param {import('express').Response} res - Express response
+ * @param {string} message - Error message
+ * @param {Object} details - Error details
+ * @param {Object} options - Additional options
+ * @returns {import('express').Response} Express response
+ */
+export function sendRateLimit(res, message = 'Too many requests', details = null, options = {}) {
+    return sendError(res, new AppError(message, {
+        code: 'RATE_LIMITED',
+        statusCode: HTTP_STATUS.TOO_MANY_REQUESTS,
+        isOperational: true,
+        details,
+    }), options);
+}
+
+// ----------------------------------------------------------------------------
+// 5. EXPORTS
+// ----------------------------------------------------------------------------
+
+export default {
+    sendSuccess,
+    sendCreated,
+    sendAccepted,
+    sendNoContent,
+    sendPaginated,
+    sendError,
+    sendBadRequest,
+    sendUnauthorized,
+    sendForbidden,
+    sendNotFound,
+    sendConflict,
+    sendValidationError,
+    sendRateLimit,
+    safeSerialize,
+};
+
+// ----------------------------------------------------------------------------
+// EXPLANATION
+// ----------------------------------------------------------------------------
+
+/**
+ * RESPONSE MODULE EXPLANATION
+ * 
+ * 1. CORE DESIGN
+ *    - sendSuccess() for consistent success responses
+ *    - sendError() for consistent error responses
+ *    - sendPaginated() for paginated data responses
+ *    - Convenience helpers for common status codes
+ * 
+ * 2. RESPONSE FORMATS
+ *    Success: { success: true, data?, message?, meta? }
+ *    Error: { success: false, error: { code, message, details? }, requestId? }
+ *    Paginated: { success: true, data: [], meta: { pagination: {...} } }
+ * 
+ * 3. INTEGRATION WITH EXISTING MODULES
+ *    - Uses request-context.js for requestId/correlationId
+ *    - Uses errors.js for error normalization and safe responses
+ *    - Uses constants.js for HTTP status codes
+ * 
+ * 4. SECURITY FEATURES
+ *    - No stack traces in production
+ *    - No SQL queries exposed
+ *    - No sensitive data exposed
+ *    - Safe serialization of BigInt, Date, circular refs
+ *    - Message sanitization
+ *    - Status code validation
+ * 
+ * 5. ERROR HANDLING
+ *    - sendError() normalizes any error using errors.js
+ *    - Unknown errors become 500 Internal Server Error
+ *    - Zod validation errors are formatted with details
+ *    - Database errors are sanitized
+ * 
+ * 6. PAGINATION SUPPORT
+ *    - sendPaginated() formats data with pagination metadata
+ *    - Works with pagination.js module for calculations
+ * 
+ * 7. ENVIRONMENT AWARENESS
+ *    - Development: may include stack traces, causes, types
+ *    - Production: minimal safe error responses
+ * 
+ * 8. USAGE EXAMPLES
+ * 
+ *    // Success responses
+ *    sendSuccess(res, { data: user, message: 'User found' });
+ *    sendCreated(res, user, 'User created');
+ *    sendNoContent(res);
+ * 
+ *    // Paginated responses
+ *    sendPaginated(res, {
+ *        data: posts,
+ *        pagination: { page: 1, limit: 20, total: 150, totalPages: 8, hasNext: true, hasPrevious: false }
+ *    });
+ * 
+ *    // Error responses
+ *    sendError(res, err);
+ *    sendNotFound(res, 'User not found');
+ *    sendValidationError(res, 'Validation failed', { email: 'Invalid email' });
+ * 
+ * 9. TESTING
+ *    - All functions accept mocked Express response objects
+ *    - No side effects on import
+ *    - Safe to use in CLI scripts and background jobs
+ *    - Works without request context
+ */
+===== INDEX ROUTES =====
+/**
+ * app/routes/index.routes.js
+ * Root route composer for Tesnow
+ * Central mount point for all route groups
+ *
+ * @module routes/index.routes
+ */
+
+import express from 'express';
+
+import systemRouter from './system.routes.js';
+import apiRouter from './api.routes.js';
+import authRouter from './auth.routes.js';
+import userRouter from './user.routes.js';
+import adminRouter from './admin.routes.js';
+import publicRouter from './public.routes.js';
+
+// ----------------------------------------------------------------------------
+// 1. ROOT ROUTER
+// ----------------------------------------------------------------------------
+
+const router = express.Router();
+
+// ----------------------------------------------------------------------------
+// 2. SYSTEM ROUTES
+// ----------------------------------------------------------------------------
+// System routes are mounted first so they cannot be shadowed by
+// broad public routes or future catch-all handlers.
+
+router.use('/system', systemRouter);
+
+// ----------------------------------------------------------------------------
+// 3. API ROUTES
+// ----------------------------------------------------------------------------
+
+router.use('/api', apiRouter);
+
+// ----------------------------------------------------------------------------
+// 4. AUTHENTICATION ROUTES
+// ----------------------------------------------------------------------------
+
+router.use('/auth', authRouter);
+
+// ----------------------------------------------------------------------------
+// 5. USER ROUTES
+// ----------------------------------------------------------------------------
+
+router.use('/user', userRouter);
+
+// ----------------------------------------------------------------------------
+// 6. ADMIN ROUTES
+// ----------------------------------------------------------------------------
+
+router.use('/admin', adminRouter);
+
+// ----------------------------------------------------------------------------
+// 7. PUBLIC ROUTES
+// ----------------------------------------------------------------------------
+// Public routes are mounted last because this router may eventually
+// contain broad/catch-all public handlers.
+
+router.use('/', publicRouter);
+
+// ----------------------------------------------------------------------------
+// 8. EXPORTS
+// ----------------------------------------------------------------------------
+
+export default router;
+export { router };
+===== APP ROUTER MOUNT =====
+4-import helmet from 'helmet';
+5-import cors from 'cors';
+6-import cookieParser from 'cookie-parser';
+7-import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+8-import session from 'express-session';
+9-import pinoHttp from 'pino-http';
+10-
+11-import { getDbPool } from '../config/database.config.js';
+12:import rootRouter from '../routes/index.routes.js';
+13-
+14-// Configuration
+15-import appConfig from '../config/app.config.js';
+16-import securityConfig from '../config/security.config.js';
+17-import sessionConfig, { getSessionSecret } from '../config/session.config.js';
+18-import corsConfig from '../config/cors.config.js';
+19-import uploadConfig from '../config/upload.config.js';
+20-import rateLimitConfig from '../config/rate-limit.config.js';
+21-
+22-// Core
+23-import logger from './logger.js';
+24-import {
+25-    NotFoundError,
+26-    RateLimitError,
+27-    normalizeError,
+--
+908-
+909-    res.json(response);
+910-});
+911-
+912-// ============================================================================
+913-// APPLICATION ROUTES
+914-// ============================================================================
+915-
+916:app.use('/', rootRouter);
+917-
+918-// ============================================================================
+919-// 404 HANDLER
+920-// ============================================================================
+921-
+922-app.use((req, res) => {
+923-    if (prefersJson(req)) {
+924-        const response = toSafeErrorResponse(
+925-            new NotFoundError('Resource not found'),
+926-            {
+927-                development: !IS_PRODUCTION,
+928-                requestId: req.id,
+929-            }
+930-        );
+931-

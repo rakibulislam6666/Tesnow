@@ -1,0 +1,1419 @@
+===== TESNOW SEED RUNNER AUDIT =====
+
+===== DATE =====
+Wed Sep  9 22:33:36 +06 2026
+
+===== SEED SCRIPT =====
+EXISTS
+
+===== ALL SEEDERS =====
+database/seeders/admin.seeder.js
+database/seeders/admin_roles.seeder.js
+database/seeders/categories.seeder.js
+database/seeders/demo.seeder.js
+database/seeders/permissions.seeder.js
+database/seeders/role_permissions.seeder.js
+database/seeders/roles.seeder.js
+
+===== database/seeders/permissions.seeder.js =====
+/**
+ * database/seeders/permissions.seeder.js
+ * Seeds the current permissions catalog (45 permissions) into the permissions table.
+ *
+ * This seeder is idempotent – it checks each permission by `slug` and inserts only missing ones.
+ *
+ * @param {import('mysql2/promise').Connection} connection - A database connection supplied by the seed runner.
+ * @returns {Promise<{ inserted: number, skipped: number }>}
+ */
+
+import { randomUUID } from 'node:crypto';
+
+// ----------------------------------------------------------------------------
+// 1. AUTHORITATIVE CURRENT PERMISSION CATALOG
+// ----------------------------------------------------------------------------
+
+const PERMISSIONS = [
+  // Dashboard
+  { slug: 'dashboard.read', name: 'View Dashboard', description: 'Allows viewing the admin dashboard overview.' },
+
+  // Posts
+  { slug: 'post.read', name: 'View Posts', description: 'Allows viewing posts in the admin area.' },
+  { slug: 'post.create', name: 'Create Posts', description: 'Allows creating new posts.' },
+  { slug: 'post.update', name: 'Update Posts', description: 'Allows editing existing posts.' },
+  { slug: 'post.delete', name: 'Delete Posts', description: 'Allows permanently deleting posts.' },
+  { slug: 'post.restore', name: 'Restore Posts', description: 'Allows restoring soft‑deleted posts.' },
+  { slug: 'post.publish', name: 'Publish Posts', description: 'Allows publishing or unpublishing posts.' },
+  { slug: 'post.schedule', name: 'Schedule Posts', description: 'Allows setting scheduled publishing times for posts.' },
+
+  // Categories
+  { slug: 'category.read', name: 'View Categories', description: 'Allows viewing categories.' },
+  { slug: 'category.create', name: 'Create Categories', description: 'Allows creating new categories.' },
+  { slug: 'category.update', name: 'Update Categories', description: 'Allows editing categories.' },
+  { slug: 'category.delete', name: 'Delete Categories', description: 'Allows deleting categories.' },
+
+  // Tags
+  { slug: 'tag.read', name: 'View Tags', description: 'Allows viewing tags.' },
+  { slug: 'tag.create', name: 'Create Tags', description: 'Allows creating new tags.' },
+  { slug: 'tag.update', name: 'Update Tags', description: 'Allows editing tags.' },
+  { slug: 'tag.delete', name: 'Delete Tags', description: 'Allows deleting tags.' },
+
+  // Media
+  { slug: 'media.read', name: 'View Media', description: 'Allows viewing media files.' },
+  { slug: 'media.create', name: 'Upload Media', description: 'Allows uploading new media files.' },
+  { slug: 'media.update', name: 'Update Media Metadata', description: 'Allows editing media metadata.' },
+  { slug: 'media.delete', name: 'Delete Media', description: 'Allows deleting media files.' },
+
+  // Comments
+  { slug: 'comment.read', name: 'View Comments', description: 'Allows viewing comments.' },
+  { slug: 'comment.approve', name: 'Approve Comments', description: 'Allows approving pending comments.' },
+  { slug: 'comment.reject', name: 'Reject Comments', description: 'Allows rejecting pending comments.' },
+  { slug: 'comment.delete', name: 'Delete Comments', description: 'Allows deleting comments.' },
+
+  // Users
+  { slug: 'user.read', name: 'View Users', description: 'Allows viewing user accounts.' },
+  { slug: 'user.create', name: 'Create Users', description: 'Allows creating new user accounts.' },
+  { slug: 'user.update', name: 'Update Users', description: 'Allows editing user profiles.' },
+  { slug: 'user.delete', name: 'Delete Users', description: 'Allows permanently deleting user accounts.' },
+  { slug: 'user.suspend', name: 'Suspend Users', description: 'Allows suspending or unsuspending users.' },
+  { slug: 'user.verify', name: 'Verify Users', description: 'Allows manually verifying user accounts.' },
+  { slug: 'user.force_password_reset', name: 'Force Password Reset', description: 'Allows forcing a password reset for users.' },
+
+  // User Posts
+  { slug: 'user_post.read', name: 'View User Posts', description: 'Allows viewing posts owned by users.' },
+
+  // Notifications
+  { slug: 'notification.read', name: 'View Notifications', description: 'Allows viewing system notifications.' },
+  { slug: 'notification.create', name: 'Create Notifications', description: 'Allows sending system notifications.' },
+  { slug: 'notification.delete', name: 'Delete Notifications', description: 'Allows deleting notifications.' },
+
+  // Analytics
+  { slug: 'analytics.read', name: 'View Analytics', description: 'Allows viewing analytics dashboards and data.' },
+
+  // Audit Logs
+  { slug: 'audit_log.read', name: 'View Audit Logs', description: 'Allows viewing the audit trail.' },
+
+  // Security
+  { slug: 'security.read', name: 'View Security Overview', description: 'Allows viewing security events and overview.' },
+  { slug: 'security.sessions.read', name: 'View Active Sessions', description: 'Allows viewing active sessions.' },
+
+  // Reports
+  { slug: 'report.read', name: 'View Reports', description: 'Allows viewing user reports.' },
+  { slug: 'report.resolve', name: 'Resolve Reports', description: 'Allows resolving reports.' },
+  { slug: 'report.dismiss', name: 'Dismiss Reports', description: 'Allows dismissing reports.' },
+
+  // Settings
+  { slug: 'setting.read', name: 'View Settings', description: 'Allows viewing site settings.' },
+  { slug: 'setting.update', name: 'Update Settings', description: 'Allows editing site settings.' },
+
+  // System Health
+  { slug: 'system.read', name: 'View System Health', description: 'Allows viewing system health and status.' },
+];
+
+// ----------------------------------------------------------------------------
+// 2. SEEDER FUNCTION
+// ----------------------------------------------------------------------------
+
+/**
+ * Seeds the permissions table with the current permission catalog.
+ *
+ * @param {import('mysql2/promise').Connection} connection - A database connection.
+ * @returns {Promise<{ inserted: number, skipped: number }>}
+ */
+export async function seedPermissions(connection) {
+  let inserted = 0;
+  let skipped = 0;
+
+  for (const { slug, name, description } of PERMISSIONS) {
+    // 1. Check if the permission already exists by slug.
+    const [rows] = await connection.query(
+      'SELECT id FROM permissions WHERE slug = ? LIMIT 1',
+      [slug]
+    );
+
+    if (rows.length > 0) {
+      // Slug exists – skip without modifying.
+      skipped += 1;
+      continue;
+    }
+
+    // 2. Insert the new permission.
+    const uuid = randomUUID();
+    await connection.query(
+      'INSERT INTO permissions (uuid, name, slug, description) VALUES (?, ?, ?, ?)',
+      [uuid, name, slug, description]
+    );
+
+    inserted += 1;
+  }
+
+  return { inserted, skipped };
+}
+
+// ----------------------------------------------------------------------------
+// 3. DEFAULT EXPORT
+// ----------------------------------------------------------------------------
+
+export default seedPermissions;
+
+===== database/seeders/roles.seeder.js =====
+/**
+ * database/seeders/roles.seeder.js
+ * Seeds the approved current role catalog (8 roles) into the roles table.
+ *
+ * This seeder is idempotent – it checks each role by `slug` and inserts only missing ones.
+ *
+ * @param {import('mysql2/promise').Connection} connection - A database connection supplied by the seed runner.
+ * @returns {Promise<{ inserted: number, skipped: number }>}
+ */
+
+import { randomUUID } from 'node:crypto';
+
+// ----------------------------------------------------------------------------
+// 1. AUTHORITATIVE CURRENT ROLE CATALOG
+// ----------------------------------------------------------------------------
+
+const ROLES = [
+  {
+    slug: 'super_admin',
+    name: 'Super Administrator',
+    description: 'Full system control – has all current permissions. System role.',
+    isSystemRole: true,
+  },
+  {
+    slug: 'content_manager',
+    name: 'Content Manager',
+    description: 'Manages posts, categories, tags, media, and comments.',
+    isSystemRole: false,
+  },
+  {
+    slug: 'user_manager',
+    name: 'User Manager',
+    description: 'Manages user accounts, user posts, and notifications.',
+    isSystemRole: false,
+  },
+  {
+    slug: 'moderator',
+    name: 'Moderator',
+    description: 'Moderates comments and handles user reports.',
+    isSystemRole: false,
+  },
+  {
+    slug: 'analytics_viewer',
+    name: 'Analytics Viewer',
+    description: 'Views analytics dashboards, system health, and basic operational context (read-only).',
+    isSystemRole: false,
+  },
+  {
+    slug: 'settings_manager',
+    name: 'Settings Manager',
+    description: 'Manages site settings.',
+    isSystemRole: false,
+  },
+  {
+    slug: 'viewer',
+    name: 'Viewer',
+    description: 'Read‑only access to operational content (posts, categories, tags, media, comments).',
+    isSystemRole: false,
+  },
+  {
+    slug: 'auditor',
+    name: 'Auditor',
+    description: 'Read‑only access to audit logs, security events, and active sessions.',
+    isSystemRole: false,
+  },
+];
+
+// ----------------------------------------------------------------------------
+// 2. SEEDER FUNCTION
+// ----------------------------------------------------------------------------
+
+/**
+ * Seeds the roles table with the current role catalog.
+ *
+ * @param {import('mysql2/promise').Connection} connection - A database connection.
+ * @returns {Promise<{ inserted: number, skipped: number }>}
+ */
+export async function seedRoles(connection) {
+  let inserted = 0;
+  let skipped = 0;
+
+  for (const { slug, name, description, isSystemRole } of ROLES) {
+    // 1. Check if the role already exists by slug.
+    const [rows] = await connection.query(
+      'SELECT id FROM roles WHERE slug = ? LIMIT 1',
+      [slug]
+    );
+
+    if (rows.length > 0) {
+      // Slug exists – skip without modifying.
+      skipped += 1;
+      continue;
+    }
+
+    // 2. Insert the new role.
+    const uuid = randomUUID();
+    await connection.query(
+      `INSERT INTO roles (uuid, name, slug, description, is_system_role)
+       VALUES (?, ?, ?, ?, ?)`,
+      [uuid, name, slug, description, isSystemRole]
+    );
+
+    inserted += 1;
+  }
+
+  return { inserted, skipped };
+}
+
+// ----------------------------------------------------------------------------
+// 3. DEFAULT EXPORT
+// ----------------------------------------------------------------------------
+
+export default seedRoles;
+===== database/seeders/role_permissions.seeder.js =====
+/**
+ * database/seeders/role_permissions.seeder.js
+ * Seeds the approved role‑permission assignments (111 total) into the role_permissions table.
+ *
+ * This seeder is idempotent – it checks each mapping by role_id and permission_id,
+ * and inserts only missing ones. It does not modify or delete existing mappings.
+ *
+ * @param {import('mysql2/promise').Connection} connection - A database connection supplied by the seed runner.
+ * @returns {Promise<{ inserted: number, skipped: number }>}
+ */
+
+// ----------------------------------------------------------------------------
+// 1. AUTHORITATIVE ROLE → PERMISSION MATRIX
+// ----------------------------------------------------------------------------
+
+// All approved current permission slugs (for reference)
+const ALL_PERMISSIONS = [
+  'dashboard.read',
+  'post.read',
+  'post.create',
+  'post.update',
+  'post.delete',
+  'post.restore',
+  'post.publish',
+  'post.schedule',
+  'category.read',
+  'category.create',
+  'category.update',
+  'category.delete',
+  'tag.read',
+  'tag.create',
+  'tag.update',
+  'tag.delete',
+  'media.read',
+  'media.create',
+  'media.update',
+  'media.delete',
+  'comment.read',
+  'comment.approve',
+  'comment.reject',
+  'comment.delete',
+  'user.read',
+  'user.create',
+  'user.update',
+  'user.delete',
+  'user.suspend',
+  'user.verify',
+  'user.force_password_reset',
+  'user_post.read',
+  'notification.read',
+  'notification.create',
+  'notification.delete',
+  'analytics.read',
+  'audit_log.read',
+  'security.read',
+  'security.sessions.read',
+  'report.read',
+  'report.resolve',
+  'report.dismiss',
+  'setting.read',
+  'setting.update',
+  'system.read',
+];
+
+// Matrix: role slug → array of permission slugs
+const ROLE_PERMISSIONS = {
+  super_admin: ALL_PERMISSIONS, // all 45
+
+  content_manager: [
+    'dashboard.read',
+    'post.read',
+    'post.create',
+    'post.update',
+    'post.delete',
+    'post.restore',
+    'post.publish',
+    'post.schedule',
+    'category.read',
+    'category.create',
+    'category.update',
+    'category.delete',
+    'tag.read',
+    'tag.create',
+    'tag.update',
+    'tag.delete',
+    'media.read',
+    'media.create',
+    'media.update',
+    'media.delete',
+    'comment.read',
+    'comment.approve',
+    'comment.reject',
+    'comment.delete',
+  ],
+
+  user_manager: [
+    'dashboard.read',
+    'user.read',
+    'user.create',
+    'user.update',
+    'user.delete',
+    'user.suspend',
+    'user.verify',
+    'user.force_password_reset',
+    'user_post.read',
+    'notification.read',
+    'notification.create',
+    'notification.delete',
+  ],
+
+  moderator: [
+    'dashboard.read',
+    'comment.read',
+    'comment.approve',
+    'comment.reject',
+    'comment.delete',
+    'report.read',
+    'report.resolve',
+    'report.dismiss',
+  ],
+
+  analytics_viewer: [
+    'dashboard.read',
+    'analytics.read',
+    'system.read',
+    'post.read',
+    'user.read',
+    'comment.read',
+  ],
+
+  settings_manager: [
+    'dashboard.read',
+    'setting.read',
+    'setting.update',
+  ],
+
+  viewer: [
+    'dashboard.read',
+    'post.read',
+    'category.read',
+    'tag.read',
+    'media.read',
+    'comment.read',
+  ],
+
+  auditor: [
+    'dashboard.read',
+    'audit_log.read',
+    'security.read',
+    'security.sessions.read',
+    'post.read',
+    'user.read',
+    'comment.read',
+  ],
+};
+
+// ----------------------------------------------------------------------------
+// 2. SEEDER FUNCTION
+// ----------------------------------------------------------------------------
+
+/**
+ * Seeds the role_permissions table with the approved role‑permission assignments.
+ *
+ * @param {import('mysql2/promise').Connection} connection - A database connection.
+ * @returns {Promise<{ inserted: number, skipped: number }>}
+ */
+export async function seedRolePermissions(connection) {
+  // 1. Resolve all role IDs by slug.
+  const roleSlugs = Object.keys(ROLE_PERMISSIONS);
+  const roleIdMap = new Map();
+
+  for (const slug of roleSlugs) {
+    const [rows] = await connection.query(
+      'SELECT id FROM roles WHERE slug = ? AND deleted_at IS NULL LIMIT 1',
+      [slug]
+    );
+    if (rows.length === 0) {
+      throw new Error(`Required role not found: "${slug}"`);
+    }
+    roleIdMap.set(slug, rows[0].id);
+  }
+
+  // 2. Resolve all permission IDs by slug.
+  const allPermissionSlugs = Object.values(ROLE_PERMISSIONS).flat();
+  const uniquePermissionSlugs = [...new Set(allPermissionSlugs)];
+  const permissionIdMap = new Map();
+
+  for (const slug of uniquePermissionSlugs) {
+    const [rows] = await connection.query(
+      'SELECT id FROM permissions WHERE slug = ? LIMIT 1',
+      [slug]
+    );
+    if (rows.length === 0) {
+      throw new Error(`Required permission not found: "${slug}"`);
+    }
+    permissionIdMap.set(slug, rows[0].id);
+  }
+
+  // 3. Insert assignments.
+  let inserted = 0;
+  let skipped = 0;
+
+  for (const [roleSlug, permissionSlugs] of Object.entries(ROLE_PERMISSIONS)) {
+    const roleId = roleIdMap.get(roleSlug);
+
+    for (const permSlug of permissionSlugs) {
+      const permissionId = permissionIdMap.get(permSlug);
+
+      // Check if the mapping already exists.
+      const [exists] = await connection.query(
+        'SELECT 1 FROM role_permissions WHERE role_id = ? AND permission_id = ? LIMIT 1',
+        [roleId, permissionId]
+      );
+
+      if (exists.length > 0) {
+        skipped += 1;
+        continue;
+      }
+
+      // Insert the mapping.
+      await connection.query(
+        'INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)',
+        [roleId, permissionId]
+      );
+      inserted += 1;
+    }
+  }
+
+  return { inserted, skipped };
+}
+
+// ----------------------------------------------------------------------------
+// 3. DEFAULT EXPORT
+// ----------------------------------------------------------------------------
+
+export default seedRolePermissions;
+===== database/seeders/admin_roles.seeder.js =====
+/**
+ * database/seeders/admin_roles.seeder.js
+ * Seeds admin-role assignments based on an explicit mapping.
+ *
+ * The mapping is intentionally empty until an authoritative admin-role assignment policy is defined.
+ * This seeder is idempotent – it checks each mapping and inserts only missing ones.
+ *
+ * @param {import('mysql2/promise').Connection} connection - A database connection supplied by the seed runner.
+ * @returns {Promise<{ inserted: number, skipped: number }>}
+ */
+
+// ----------------------------------------------------------------------------
+// 1. AUTHORITATIVE ADMIN → ROLE MAPPING
+// ----------------------------------------------------------------------------
+
+/**
+ * ADMIN_ROLE_MAPPINGS defines which admin (by admin_uuid) gets which role (by role slug).
+ *
+ * This is currently empty. To add a mapping, use the following structure:
+ *
+ * {
+ *   adminUuid: 'explicit-admin-uuid',
+ *   roleSlug: 'explicit-role-slug'
+ * }
+ *
+ * The admin must exist, be active, and have an active associated user.
+ * The role must exist and not be soft-deleted.
+ */
+const ADMIN_ROLE_MAPPINGS = [];
+
+// ----------------------------------------------------------------------------
+// 2. SEEDER FUNCTION
+// ----------------------------------------------------------------------------
+
+/**
+ * Seeds the admin_roles table with the configured admin-role mappings.
+ *
+ * @param {import('mysql2/promise').Connection} connection - A database connection.
+ * @returns {Promise<{ inserted: number, skipped: number }>}
+ */
+export async function seedAdminRoles(connection) {
+  // If no mappings are configured, return immediately.
+  if (ADMIN_ROLE_MAPPINGS.length === 0) {
+    return { inserted: 0, skipped: 0 };
+  }
+
+  let inserted = 0;
+  let skipped = 0;
+
+  for (const mapping of ADMIN_ROLE_MAPPINGS) {
+    const { adminUuid, roleSlug } = mapping;
+
+    // 1. Resolve admin ID by admin_uuid, ensuring active user and admin.
+    const [adminRows] = await connection.query(
+      `SELECT a.id
+       FROM admins a
+       JOIN users u ON a.user_id = u.id
+       WHERE a.admin_uuid = ?
+         AND a.status = 'active'
+         AND a.deleted_at IS NULL
+         AND u.status = 'active'
+         AND u.deleted_at IS NULL
+       LIMIT 1`,
+      [adminUuid]
+    );
+
+    if (adminRows.length === 0) {
+      // Admin not found or not active – skip this mapping.
+      skipped += 1;
+      continue;
+    }
+    const adminId = adminRows[0].id;
+
+    // 2. Resolve role ID by slug, ensuring it is not soft-deleted.
+    const [roleRows] = await connection.query(
+      'SELECT id FROM roles WHERE slug = ? AND deleted_at IS NULL LIMIT 1',
+      [roleSlug]
+    );
+
+    if (roleRows.length === 0) {
+      // Role not found or soft-deleted – skip this mapping.
+      skipped += 1;
+      continue;
+    }
+    const roleId = roleRows[0].id;
+
+    // 3. Check if the assignment already exists.
+    const [exists] = await connection.query(
+      'SELECT 1 FROM admin_roles WHERE admin_id = ? AND role_id = ? LIMIT 1',
+      [adminId, roleId]
+    );
+
+    if (exists.length > 0) {
+      // Already assigned – skip.
+      skipped += 1;
+      continue;
+    }
+
+    // 4. Insert the new assignment.
+    await connection.query(
+      'INSERT INTO admin_roles (admin_id, role_id) VALUES (?, ?)',
+      [adminId, roleId]
+    );
+    inserted += 1;
+  }
+
+  return { inserted, skipped };
+}
+
+// ----------------------------------------------------------------------------
+// 3. DEFAULT EXPORT
+// ----------------------------------------------------------------------------
+
+export default seedAdminRoles;
+===== database/seeders/admin.seeder.js =====
+
+===== database/seeders/categories.seeder.js =====
+
+===== database/seeders/demo.seeder.js =====
+
+===== PACKAGE JSON =====
+{
+  "name": "tesnow",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Professional, secure and future-ready blogging/content platform",
+  "license": "MIT",
+  "type": "module",
+  "main": "server.js",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "security:audit": "npm audit",
+    "db:migrate": "node scripts/migrate.js",
+    "db:rollback": "node scripts/rollback.js",
+    "db:seed": "node scripts/seed.js",
+    "db:health": "node database/database-health.js",
+    "backup": "node scripts/backup.js",
+    "restore": "node scripts/restore.js",
+    "health": "node scripts/health-check.js",
+    "setup": "node scripts/setup.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.7.0",
+    "express-session": "^1.19.0",
+    "helmet": "^8.3.0",
+    "mysql2": "^3.24.4",
+    "pino-http": "^11.0.0"
+  },
+  "devDependencies": {
+    "eslint": "^9.17.0",
+    "nodemon": "^3.1.9",
+    "prettier": "^3.4.2",
+    "vitest": "^2.1.8"
+  },
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "keywords": [],
+  "author": ""
+}
+
+===== MIGRATION RUNNER =====
+/**
+ * scripts/migrate.js
+ *
+ * Tesnow database migration runner.
+ *
+ * Discovers UP migration files in database/migrations/, validates the full
+ * migration set (naming, duplicates, missing rollbacks, readability), verifies
+ * the integrity of already-applied migrations via SHA-256 checksum, and then
+ * applies any pending migrations in strict numeric order.
+ *
+ * IMPORTANT MariaDB/MySQL behavior:
+ * DDL statements (CREATE TABLE, ALTER TABLE, DROP TABLE, etc.) cause an implicit
+ * commit in MariaDB/MySQL. A transaction started by this script CANNOT roll back
+ * DDL that has already executed earlier in the same migration if a later
+ * statement fails. Transactions are still used here so that any purely-DML
+ * portions of a migration benefit from atomicity, but correctness for DDL-heavy
+ * migrations depends on migration files being small, sequential, and idempotent
+ * (e.g. `CREATE TABLE IF NOT EXISTS`). This script does NOT claim or pretend
+ * that DDL execution is fully rollback-safe.
+ *
+ * This script never prints database passwords or other connection secrets.
+ * It uses the project's existing central database configuration exclusively
+ * (getDbPool()) and never opens its own connection or duplicates .env loading.
+ */
+
+import { createHash } from 'node:crypto';
+import { readdir, readFile, lstat, realpath } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import process from 'node:process';
+
+import { getDbPool } from '../app/config/database.config.js';
+
+// ---------------------------------------------------------------------------
+// Constants / paths
+// ---------------------------------------------------------------------------
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const MIGRATIONS_DIR = path.resolve(__dirname, '..', 'database', 'migrations');
+const SCHEMA_MIGRATIONS_TABLE = 'schema_migrations';
+
+// Exactly three numeric digits, underscore, a safe lowercase migration name
+// (letters/digits/underscores only, starting with a letter), then `.sql`.
+// This pattern cannot match `*.down.sql` files because the name segment does
+// not permit a literal dot.
+const UP_MIGRATION_PATTERN = /^(\d{3})_([a-z][a-z0-9_]*)\.sql$/;
+
+// ---------------------------------------------------------------------------
+// Error types
+// ---------------------------------------------------------------------------
+
+export class MigrationError extends Error {
+  constructor(migrationFilename, statementNumber, message) {
+    super(
+      statementNumber
+        ? `Migration "${migrationFilename}" failed at statement #${statementNumber}: ${message}`
+        : `Migration "${migrationFilename}" failed: ${message}`
+    );
+    this.name = 'MigrationError';
+    this.migrationFilename = migrationFilename;
+    this.statementNumber = statementNumber ?? null;
+  }
+}
+
+export class MigrationIntegrityError extends Error {
+  constructor(migrationFilename, appliedChecksum, currentChecksum) {
+    super(
+      [
+        'MIGRATION INTEGRITY ERROR',
+        '',
+        'Migration:',
+        migrationFilename,
+        '',
+        'This migration was already applied but its file contents have changed.',
+        '',
+        'Applied checksum:',
+        appliedChecksum,
+        '',
+        'Current checksum:',
+        currentChecksum,
+        '',
+        'Restore the original migration file or create a new migration.',
+        'Do NOT edit an already-applied migration.',
+      ].join('\n')
+    );
+    this.name = 'MigrationIntegrityError';
+    this.migrationFilename = migrationFilename;
+    this.appliedChecksum = appliedChecksum;
+    this.currentChecksum = currentChecksum;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Strips likely-sensitive substrings (password=..., secret=..., token=...)
+ * out of an error message before it is ever logged. Defense-in-depth: normal
+ * SQL/driver errors from this script should never contain credentials, but we
+ * never want to take that on faith.
+ */
+function sanitizeError(err) {
+  const raw = (err && (err.sqlMessage || err.message)) || String(err);
+  return raw.replace(/(password|pwd|secret|token)\s*=\s*['"]?[^'"\s]+['"]?/gi, '$1=[REDACTED]');
+}
+
+/**
+ * Best-effort database name for display purposes only. Never reads or prints
+ * a password/secret. Falls back gracefully since mysql2 does not expose a
+ * stable public API for introspecting pool connection options.
+ */
+function getDatabaseNameForDisplay() {
+  const fromEnv =
+    process.env.DB_NAME ||
+    process.env.DB_DATABASE ||
+    process.env.DATABASE_NAME ||
+    process.env.MYSQL_DATABASE;
+
+  if (fromEnv) return fromEnv;
+  return '(see app/config/database.config.js)';
+}
+
+// ---------------------------------------------------------------------------
+// SQL statement splitter
+// ---------------------------------------------------------------------------
+
+/**
+ * Safely splits a SQL file's contents into individual statements.
+ *
+ * Correctly tracks state across:
+ *   - single-quoted strings ('...') including backslash escapes and doubled '' escapes
+ *   - double-quoted strings ("...") including backslash escapes and doubled "" escapes
+ *   - backtick-quoted identifiers (`...`) including doubled `` escapes
+ *   - `-- line comments`
+ *   - `# line comments`
+ *   - `/* block comments *\/`
+ *
+ * Semicolons inside any of the above are never treated as statement
+ * terminators. This function deliberately does NOT use `sql.split(';')`.
+ *
+ * @param {string} sql
+ * @returns {string[]} non-empty, trimmed SQL statements, in order
+ */
+export function splitSqlStatements(sql) {
+  const STATE = Object.freeze({
+    NONE: 0,
+    SINGLE_QUOTE: 1,
+    DOUBLE_QUOTE: 2,
+    BACKTICK: 3,
+    LINE_COMMENT: 4,
+    BLOCK_COMMENT: 5,
+  });
+
+  let state = STATE.NONE;
+  let current = '';
+  const statements = [];
+
+  const len = sql.length;
+  let i = 0;
+
+  while (i < len) {
+    const ch = sql[i];
+    const next = i + 1 < len ? sql[i + 1] : '';
+
+    switch (state) {
+      case STATE.NONE: {
+        if (ch === "'") {
+          state = STATE.SINGLE_QUOTE;
+          current += ch;
+          i += 1;
+          continue;
+        }
+        if (ch === '"') {
+          state = STATE.DOUBLE_QUOTE;
+          current += ch;
+          i += 1;
+          continue;
+        }
+        if (ch === '`') {
+          state = STATE.BACKTICK;
+          current += ch;
+          i += 1;
+          continue;
+        }
+        if (ch === '-' && next === '-') {
+          state = STATE.LINE_COMMENT;
+          i += 2;
+          continue;
+        }
+        if (ch === '#') {
+          state = STATE.LINE_COMMENT;
+          i += 1;
+          continue;
+        }
+        if (ch === '/' && next === '*') {
+          state = STATE.BLOCK_COMMENT;
+          i += 2;
+          continue;
+        }
+        if (ch === ';') {
+          statements.push(current);
+          current = '';
+          i += 1;
+          continue;
+        }
+        current += ch;
+        i += 1;
+        continue;
+      }
+
+      case STATE.SINGLE_QUOTE: {
+        if (ch === '\\' && next !== '') {
+          current += ch + next;
+          i += 2;
+          continue;
+        }
+        if (ch === "'" && next === "'") {
+          current += "''";
+          i += 2;
+          continue;
+        }
+        if (ch === "'") {
+          state = STATE.NONE;
+          current += ch;
+          i += 1;
+          continue;
+        }
+        current += ch;
+        i += 1;
+        continue;
+      }
+
+      case STATE.DOUBLE_QUOTE: {
+        if (ch === '\\' && next !== '') {
+          current += ch + next;
+          i += 2;
+          continue;
+        }
+        if (ch === '"' && next === '"') {
+          current += '""';
+          i += 2;
+          continue;
+        }
+        if (ch === '"') {
+          state = STATE.NONE;
+          current += ch;
+          i += 1;
+          continue;
+        }
+        current += ch;
+        i += 1;
+        continue;
+      }
+
+      case STATE.BACKTICK: {
+        if (ch === '`' && next === '`') {
+          current += '``';
+          i += 2;
+          continue;
+        }
+        if (ch === '`') {
+          state = STATE.NONE;
+          current += ch;
+          i += 1;
+          continue;
+        }
+        current += ch;
+        i += 1;
+        continue;
+      }
+
+      case STATE.LINE_COMMENT: {
+        if (ch === '\n') {
+          state = STATE.NONE;
+          current += ch;
+        }
+        i += 1;
+        continue;
+      }
+
+      case STATE.BLOCK_COMMENT: {
+        if (ch === '*' && next === '/') {
+          state = STATE.NONE;
+          i += 2;
+          continue;
+        }
+        i += 1;
+        continue;
+      }
+
+      default: {
+        i += 1;
+      }
+    }
+  }
+
+  if (state === STATE.SINGLE_QUOTE || state === STATE.DOUBLE_QUOTE || state === STATE.BACKTICK) {
+    throw new Error('Unterminated string or identifier literal in SQL file');
+  }
+  if (state === STATE.BLOCK_COMMENT) {
+    throw new Error('Unterminated block comment in SQL file');
+  }
+
+  if (current.trim().length > 0) {
+    statements.push(current);
+  }
+
+  return statements.map((s) => s.trim()).filter((s) => s.length > 0);
+}
+
+// ---------------------------------------------------------------------------
+// Checksums
+// ---------------------------------------------------------------------------
+
+/**
+ * Calculates the SHA-256 checksum (hex-encoded) of the exact file contents.
+ * @param {string} content
+ * @returns {string}
+ */
+export function calculateChecksum(content) {
+  return createHash('sha256').update(content, 'utf8').digest('hex');
+}
+
+// ---------------------------------------------------------------------------
+// Discovery
+// ---------------------------------------------------------------------------
+
+/**
+ * Discovers UP migration files (`NNN_name.sql`) in the migrations directory.
+ * `.down.sql` files are never treated as UP migrations. Performs basic
+ * path-traversal and symlink-target checks so every migration resolves to a
+ * real file inside the migrations directory.
+ *
+ * @param {string} [migrationsDir]
+ * @returns {Promise<{migrations: object[], invalid: {file:string, reason:string}[]}>}
+ */
+export async function discoverMigrations(migrationsDir = MIGRATIONS_DIR) {
+  const resolvedDir = path.resolve(migrationsDir);
+  const invalid = [];
+  const migrations = [];
+
+  let entries;
+  try {
+    entries = await readdir(resolvedDir, { withFileTypes: true });
+  } catch (err) {
+    throw new Error(`Unable to read migrations directory "${resolvedDir}": ${sanitizeError(err)}`);
+  }
+
+  for (const entry of entries) {
+    const name = entry.name;
+
+    // Never treat rollback files as UP migrations.
+    if (name.endsWith('.down.sql')) continue;
+    if (!name.endsWith('.sql')) continue;
+
+    const match = UP_MIGRATION_PATTERN.exec(name);
+    if (!match) {
+      invalid.push({ file: name, reason: 'Filename does not match required pattern NNN_name.sql' });
+      continue;
+    }
+
+    const resolvedPath = path.resolve(resolvedDir, name);
+
+    // Defense-in-depth: reject anything that would resolve outside the
+    // migrations directory (should not be reachable via a plain readdir
+    // basename, but we verify anyway).
+    if (path.dirname(resolvedPath) !== resolvedDir) {
+      invalid.push({ file: name, reason: 'Resolved path escapes the migrations directory' });
+      continue;
+    }
+
+    try {
+      const stats = await lstat(resolvedPath);
+      if (stats.isSymbolicLink()) {
+        const real = await realpath(resolvedPath);
+        if (path.dirname(real) !== resolvedDir) {
+          invalid.push({ file: name, reason: 'Symlink target escapes the migrations directory' });
+          continue;
+        }
+      } else if (!stats.isFile()) {
+        invalid.push({ file: name, reason: 'Not a regular file' });
+        continue;
+      }
+    } catch (err) {
+      invalid.push({ file: name, reason: `Unable to stat file: ${sanitizeError(err)}` });
+      continue;
+    }
+
+    const downFilename = name.replace(/\.sql$/, '.down.sql');
+
+    migrations.push({
+      number: match[1],
+      name: match[2],
+      filename: name,
+      filePath: resolvedPath,
+      downFilename,
+      downPath: path.resolve(resolvedDir, downFilename),
+
+===== DATABASE CONFIG =====
+/**
+ * ============================================================
+ * TESNOW — DATABASE CONFIGURATION
+ * ============================================================
+ *
+ * Production-ready MySQL configuration module.
+ *
+ * Responsibilities:
+ * - Load environment configuration
+ * - Validate database settings
+ * - Lazily create a MySQL connection pool
+ * - Provide safe configuration information
+ * - Provide a database connectivity test
+ *
+ * Security:
+ * - Database password is never exported
+ * - Database password is never logged
+ * - Placeholder passwords are rejected
+ * - Numeric configuration values are strictly validated
+ * - Multiple SQL statements are disabled
+ * - Database connection is NOT attempted on module import
+ *
+ * Future-ready for:
+ * - Transactions
+ * - Repositories
+ * - Migrations
+ * - Health checks
+ * - Graceful shutdown
+ * ============================================================
+ */
+
+import mysql from 'mysql2/promise';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+/**
+ * Known placeholder passwords that must never be used.
+ */
+const PLACEHOLDER_PASSWORDS = new Set([
+  'CHANGE_ME_DATABASE_PASSWORD',
+  'YOUR_SECURE_DB_PASSWORD_HERE',
+  'YOUR_DB_PASSWORD_HERE',
+  'YOUR_PASSWORD_HERE',
+  'CHANGE_ME',
+  'changeme',
+  'password',
+  'your_password_here',
+]);
+
+/**
+ * Internal pool state.
+ *
+ * The pool remains null until getDbPool() is called.
+ */
+let pool = null;
+
+/**
+ * Internal validated configuration.
+ *
+ * This is intentionally never exported directly because
+ * it contains the database password.
+ */
+let databaseConfig = null;
+
+/**
+ * Check whether a value contains only decimal digits.
+ *
+ * @param {string} value
+ * @returns {boolean}
+ */
+function isStrictInteger(value) {
+  return /^\d+$/.test(value.trim());
+}
+
+/**
+ * Parse and validate a required numeric environment value.
+ *
+ * @param {string} name
+ * @param {string|undefined} rawValue
+ * @param {number} defaultValue
+ * @param {number} minimum
+ * @param {number} maximum
+ * @returns {number}
+ */
+function parseIntegerEnv(
+  name,
+  rawValue,
+  defaultValue,
+  minimum,
+  maximum = Number.MAX_SAFE_INTEGER
+) {
+  const value = rawValue?.trim() || String(defaultValue);
+
+  if (!isStrictInteger(value)) {
+    throw new Error(`${name} must contain only numeric digits.`);
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error(`${name} must be a valid safe integer.`);
+  }
+
+  if (parsed < minimum || parsed > maximum) {
+    throw new Error(
+      `${name} must be between ${minimum} and ${maximum}.`
+    );
+  }
+
+  return parsed;
+}
+
+/**
+ * Validate database environment configuration.
+ *
+ * This function does not create a connection.
+ *
+ * @returns {Object}
+ * @throws {Error}
+ */
+function validateDatabaseConfig() {
+  const requiredFields = [
+    'DB_HOST',
+    'DB_NAME',
+    'DB_USER',
+  ];
+
+  const missingFields = requiredFields.filter((name) => {
+    const value = process.env[name];
+    return !value || value.trim() === '';
+  });
+
+  if (missingFields.length > 0) {
+    throw new Error(
+      `Missing required database configuration: ${missingFields.join(', ')}`
+    );
+  }
+
+  const host = process.env.DB_HOST.trim();
+  const database = process.env.DB_NAME.trim();
+  const user = process.env.DB_USER.trim();
+
+  /**
+   * Password must always exist and must never use
+   * known placeholder values.
+   */
+  const rawPassword = process.env.DB_PASSWORD;
+
+  if (!rawPassword || rawPassword.trim() === '') {
+    throw new Error(
+      'DB_PASSWORD is required and cannot be empty.'
+    );
+  }
+
+  const password = rawPassword.trim();
+
+  const isPlaceholder = [...PLACEHOLDER_PASSWORDS].some(
+    (placeholder) =>
+      password.toLowerCase() === placeholder.toLowerCase()
+  );
+
+  if (isPlaceholder) {
+    throw new Error(
+      'DB_PASSWORD contains a placeholder value. Please set a secure password.'
+    );
+  }
+
+  const port = parseIntegerEnv(
+    'DB_PORT',
+    process.env.DB_PORT,
+    3306,
+    1,
+    65535
+  );
+
+  const connectionLimit = parseIntegerEnv(
+    'DB_CONNECTION_LIMIT',
+    process.env.DB_CONNECTION_LIMIT,
+    10,
+    1,
+    1000
+  );
+
+  const queueLimit = parseIntegerEnv(
+    'DB_QUEUE_LIMIT',
+    process.env.DB_QUEUE_LIMIT,
+    0,
+    0,
+    Number.MAX_SAFE_INTEGER
+  );
+
+  const connectTimeout = parseIntegerEnv(
+    'DB_CONNECT_TIMEOUT',
+    process.env.DB_CONNECT_TIMEOUT,
+    10000,
+    1,
+    300000
+  );
+
+  return {
+    host,
+    port,
+    database,
+    user,
+    password,
+
+    connectionLimit,
+    queueLimit,
+    connectTimeout,
+
+    charset: 'utf8mb4',
+    timezone: '+00:00',
+
+    /**
+     * Security:
+     * Prevent execution of multiple SQL statements
+     * through a single query call.
+     */
+    multipleStatements: false,
+
+    /**
+     * Return DATE/DATETIME values as strings.
+     * This avoids implicit timezone conversion surprises.
+     */
+    dateStrings: true,
+
+    /**
+     * TCP keep-alive helps long-running server processes.
+     */
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 10000,
+  };
+}
+
+/**
+ * Return validated internal configuration.
+ *
+ * Validation is cached after the first successful call.
+ *
+ * @returns {Object}
+ */
+function getValidatedConfig() {
+  if (!databaseConfig) {
+    databaseConfig = validateDatabaseConfig();
+  }
+
+  return databaseConfig;
+}
+
+/**
+ * Lazily create and return the MySQL connection pool.
+ *
+ * IMPORTANT:
+ * Calling this function creates the pool, but it does not
+ * explicitly establish a database connection immediately.
+ *
+ * @returns {import('mysql2/promise').Pool}
+ */
+function getDbPool() {
+  if (pool) {
+    return pool;
+  }
+
+  const config = getValidatedConfig();
+
+  pool = mysql.createPool({
+    host: config.host,
+    port: config.port,
+    database: config.database,
+    user: config.user,
+    password: config.password,
+
+    connectionLimit: config.connectionLimit,
+    queueLimit: config.queueLimit,
+    connectTimeout: config.connectTimeout,
+
+    charset: config.charset,
+    timezone: config.timezone,
+
+    multipleStatements: config.multipleStatements,
+    dateStrings: config.dateStrings,
+
+    enableKeepAlive: config.enableKeepAlive,
+    keepAliveInitialDelay: config.keepAliveInitialDelay,
+  });
+
+  /**
+   * mysql2 pool error handler.
+   *
+   * Only safe diagnostic fields are logged.
+   * Passwords and credentials are never logged.
+   */
+  pool.on('error', (error) => {
+    console.error('Database pool error:', {
+      code: error?.code || 'UNKNOWN',
+      errno: error?.errno ?? null,
+      sqlState: error?.sqlState ?? null,
+    });
+  });
+
+  return pool;
+}
+
+/**
+ * Return a safe database configuration object.
+ *
+ * The password is intentionally excluded.
+ *
+ * @returns {Object}
+ */
+function getSafeConfig() {
+  const config = getValidatedConfig();
+
+  return {
+    host: config.host,
+    port: config.port,
+    database: config.database,
+    user: config.user,
+
+
+===== CURRENT DB COUNTS =====
+◇ injected env (9) from .env // tip: ⌁ auth for agents [www.vestauth.com]
+users: 0
+admins: 0
+roles: 8
+permissions: 45
+role_permissions: 111
+admin_roles: 0

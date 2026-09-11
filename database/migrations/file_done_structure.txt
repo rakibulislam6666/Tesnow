@@ -1,0 +1,39 @@
+database/
+└── migrations/
+
+    ├── 001_create_users.sql
+    ├── 001_create_users.down.sql
+
+    ├── 002_create_admins.sql
+    ├── 002_create_admins.down.sql
+
+    ├── 003_create_roles.sql
+    ├── 003_create_roles.down.sql
+
+    ├── 004_create_permissions.sql
+    ├── 004_create_permissions.down.sql
+
+    ├── 005_create_posts.sql
+    ├── 005_create_posts.down.sql
+
+    ├── 006_create_post_revisions.sql
+    ├── 006_create_post_revisions.down.sql
+
+    ├── 007_create_categories.sql
+    ├── 008_create_tags.sql
+    ├── 009_create_media.sql
+    ├── 010_create_comments.sql
+    ├── 011_create_likes.sql
+    ├── 012_create_bookmarks.sql
+    ├── 013_create_notifications.sql
+    ├── 014_create_reports.sql
+    ├── 015_create_sessions.sql
+    ├── 016_create_security_events.sql
+    ├── 017_create_audit_logs.sql
+    ├── 018_create_settings.sql
+    ├── 019_create_redirects.sql
+    ├── 020_create_api_keys.sql
+    ├── 021_create_webhooks.sql
+    ├── 022_create_newsletter.sql
+    ├── 023_create_analytics.sql
+    └── 024_create_feature_flags.sql

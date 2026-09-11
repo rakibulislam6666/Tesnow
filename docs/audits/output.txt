@@ -1,0 +1,2729 @@
+===== package.json =====
+{
+  "name": "tesnow",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Professional, secure and future-ready blogging/content platform",
+  "license": "MIT",
+  "type": "module",
+  "main": "server.js",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "security:audit": "npm audit",
+    "db:migrate": "node scripts/migrate.js",
+    "db:rollback": "node scripts/rollback.js",
+    "db:seed": "node scripts/seed.js",
+    "db:health": "node database/database-health.js",
+    "backup": "node scripts/backup.js",
+    "restore": "node scripts/restore.js",
+    "health": "node scripts/health-check.js",
+    "setup": "node scripts/setup.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.7.0",
+    "express-session": "^1.19.0",
+    "helmet": "^8.3.0",
+    "mysql2": "^3.24.4",
+    "pino-http": "^11.0.0"
+  },
+  "devDependencies": {
+    "eslint": "^9.17.0",
+    "nodemon": "^3.1.9",
+    "prettier": "^3.4.2",
+    "vitest": "^2.1.8"
+  },
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "keywords": [],
+  "author": ""
+}
+===== app/core/transactions.js =====
+/**
+ * app/core/transactions.js
+ * Database transaction utility for Tesnow
+ * Provides safe, reusable transaction lifecycle management
+ * 
+ * @module transactions
+ */
+
+import { getDbPool } from '../config/database.config.js';
+
+// ----------------------------------------------------------------------------
+// 1. CONSTANTS
+// ----------------------------------------------------------------------------
+
+// Valid isolation levels for MariaDB/MySQL
+const VALID_ISOLATION_LEVELS = new Set([
+    'READ UNCOMMITTED',
+    'READ COMMITTED',
+    'REPEATABLE READ',
+    'SERIALIZABLE',
+]);
+
+// Default isolation level (use database default)
+const DEFAULT_ISOLATION_LEVEL = null;
+
+// ----------------------------------------------------------------------------
+// 2. HELPER FUNCTIONS
+// ----------------------------------------------------------------------------
+
+/**
+ * Validate that the callback is a function
+ * @param {*} callback - The callback to validate
+ * @throws {TypeError} If callback is not a function
+ */
+function validateCallback(callback) {
+    if (typeof callback !== 'function') {
+        throw new TypeError('Transaction callback must be a function');
+    }
+}
+
+/**
+ * Validate isolation level against allowed values
+ * @param {string} isolationLevel - Isolation level to validate
+ * @returns {string|null} Validated isolation level or null
+ * @throws {Error} If isolation level is invalid
+ */
+function validateIsolationLevel(isolationLevel) {
+    if (isolationLevel === null || isolationLevel === undefined) {
+        return null;
+    }
+    
+    const normalized = String(isolationLevel).toUpperCase().trim();
+    
+    if (!VALID_ISOLATION_LEVELS.has(normalized)) {
+        throw new Error(`Invalid isolation level: ${isolationLevel}. Must be one of: ${Array.from(VALID_ISOLATION_LEVELS).join(', ')}`);
+    }
+    
+    return normalized;
+}
+
+/**
+ * Set transaction isolation level if specified
+ * @param {Object} connection - MySQL connection
+ * @param {string|null} isolationLevel - Isolation level to set
+ * @returns {Promise<void>}
+ */
+async function setIsolationLevel(connection, isolationLevel) {
+    if (isolationLevel) {
+        await connection.execute(`SET TRANSACTION ISOLATION LEVEL ${isolationLevel}`);
+    }
+}
+
+/**
+ * Safely release a connection
+ * @param {Object} connection - MySQL connection to release
+ */
+function safeRelease(connection) {
+    if (connection && typeof connection.release === 'function') {
+        try {
+            connection.release();
+        } catch {
+            // Ignore release errors - connection is likely already released
+        }
+    }
+}
+
+/**
+ * Safe rollback with error handling
+ * @param {Object} connection - MySQL connection
+ * @returns {Promise<boolean>} True if rollback succeeded, false otherwise
+ */
+async function safeRollback(connection) {
+    if (!connection || typeof connection.rollback !== 'function') {
+        return false;
+    }
+    
+    try {
+        await connection.rollback();
+        return true;
+    } catch {
+        // Rollback failed - connection may be in an invalid state
+        return false;
+    }
+}
+
+/**
+ * Safe commit with error handling
+ * @param {Object} connection - MySQL connection
+ * @returns {Promise<boolean>} True if commit succeeded, false otherwise
+ */
+async function safeCommit(connection) {
+    if (!connection || typeof connection.commit !== 'function') {
+        return false;
+    }
+    
+    try {
+        await connection.commit();
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 3. CORE TRANSACTION FUNCTIONS
+// ----------------------------------------------------------------------------
+
+/**
+ * Execute a callback within a database transaction
+ * 
+ * @param {Function} callback - Async function that receives the connection
+ * @param {Object} options - Transaction options
+ * @param {Object} options.connection - Existing connection to use (optional)
+ * @param {string} options.isolationLevel - Transaction isolation level (optional)
+ * @param {boolean} options.readOnly - Set transaction as read-only (optional)
+ * @returns {Promise<*>} Result of the callback
+ * 
+ * @example
+ * // Basic usage
+ * const result = await withTransaction(async (connection) => {
+ *   await connection.execute('INSERT INTO posts (title) VALUES (?)', ['My Post']);
+ *   const [rows] = await connection.execute('SELECT LAST_INSERT_ID() as id');
+ *   return rows[0].id;
+ * });
+ * 
+ * @example
+ * // With existing connection (nested transaction)
+ * const result = await withTransaction(async (connection) => {
+ *   // Outer transaction
+ *   return await withTransaction(async (innerConn) => {
+ *     // Uses the same connection
+ *     await innerConn.execute('...');
+ *   }, { connection });
+ * }, { isolationLevel: 'SERIALIZABLE' });
+ */
+export async function withTransaction(callback, options = {}) {
+    // Validate callback
+    validateCallback(callback);
+    
+    // Extract options
+    const {
+        connection: providedConnection = null,
+        isolationLevel: rawIsolationLevel = DEFAULT_ISOLATION_LEVEL,
+        readOnly: rawReadOnly = false,
+    } = options;
+    
+    // Validate isolation level
+    const isolationLevel = validateIsolationLevel(rawIsolationLevel);
+    const readOnly = typeof rawReadOnly === 'boolean' ? rawReadOnly : false;
+    
+    // Determine if we own the connection
+    const ownsConnection = !providedConnection;
+    let connection = providedConnection;
+    let connectionAcquired = false;
+    
+    try {
+        // Acquire connection if not provided
+        if (ownsConnection) {
+            const pool = getDbPool();
+            connection = await pool.getConnection();
+            connectionAcquired = true;
+        }
+        
+        // Begin transaction
+        if (ownsConnection) {
+            // Set isolation level before beginning transaction
+            if (isolationLevel) {
+                await setIsolationLevel(connection, isolationLevel);
+            }
+            
+            // Set read-only if requested
+            if (readOnly) {
+                await connection.execute('SET TRANSACTION READ ONLY');
+            }
+            
+            await connection.beginTransaction();
+        }
+        
+        // Execute callback with connection
+        let callbackResult;
+        let callbackError = null;
+        
+        try {
+            callbackResult = await callback(connection);
+        } catch (error) {
+            callbackError = error;
+        }
+        
+        // Handle callback error
+        if (callbackError) {
+            // Rollback if we own the transaction
+            if (ownsConnection) {
+                const rollbackSuccess = await safeRollback(connection);
+                
+                if (!rollbackSuccess) {
+                    // Rollback failed - connection may be in invalid state
+                    // We still need to release, but we'll preserve the original error
+                    safeRelease(connection);
+                    connection = null;
+                    throw callbackError;
+                }
+                
+                // Release connection after rollback
+                safeRelease(connection);
+                connection = null;
+            }
+            
+            // Propagate the original error
+            throw callbackError;
+        }
+        
+        // Commit transaction if we own it
+        if (ownsConnection) {
+            const commitSuccess = await safeCommit(connection);
+            
+            if (!commitSuccess) {
+                // Commit failed - attempt rollback
+                await safeRollback(connection);
+                safeRelease(connection);
+                connection = null;
+                
+                // Throw a clear error
+                const commitError = new Error('Transaction commit failed');
+                commitError.code = 'COMMIT_FAILED';
+                commitError.cause = callbackError || null;
+                throw commitError;
+            }
+            
+            // Release connection after successful commit
+            safeRelease(connection);
+            connection = null;
+        }
+        
+        // Return callback result
+        return callbackResult;
+        
+    } catch (error) {
+        // Handle errors during connection acquisition, begin, or transaction setup
+        // Clean up any acquired connection
+        if (ownsConnection && connectionAcquired && connection) {
+            try {
+                // Attempt rollback if transaction might have been started
+                await safeRollback(connection);
+            } catch {
+                // Ignore rollback errors during error handling
+            } finally {
+                safeRelease(connection);
+            }
+        } else if (!ownsConnection && connection) {
+            // We don't own this connection - don't release it
+            // But we should ensure it's not in an invalid state
+            // The caller owns the lifecycle
+        }
+        
+        // Re-throw the error
+        throw error;
+    }
+}
+
+/**
+ * Execute a callback within a transaction with automatic retry on deadlock
+ * 
+ * @param {Function} callback - Async function that receives the connection
+ * @param {Object} options - Transaction options
+ * @param {number} options.maxRetries - Maximum retry attempts (default: 3)
+ * @param {number} options.retryDelay - Delay in ms between retries (default: 100)
+ * @param {Object} options.connection - Existing connection to use (optional)
+ * @param {string} options.isolationLevel - Transaction isolation level (optional)
+ * @param {boolean} options.readOnly - Set transaction as read-only (optional)
+ * @returns {Promise<*>} Result of the callback
+ * 
+ * @example
+ * const result = await withTransactionRetry(async (connection) => {
+ *   await connection.execute('UPDATE accounts SET balance = balance - ? WHERE id = ?', [100, 1]);
+ *   await connection.execute('UPDATE accounts SET balance = balance + ? WHERE id = ?', [100, 2]);
+ *   return { success: true };
+ * }, { maxRetries: 3 });
+ */
+export async function withTransactionRetry(callback, options = {}) {
+    const {
+        maxRetries = 3,
+        retryDelay = 100,
+        ...transactionOptions
+    } = options;
+    
+    // Validate retry parameters
+    const maxAttempts = Math.max(1, Math.min(maxRetries, 10));
+    const delay = Math.max(0, Math.min(retryDelay, 5000));
+    
+    let lastError = null;
+    
+    for (let attempt = 1; attempt <= maxAttempts + 1; attempt++) {
+        try {
+            return await withTransaction(callback, transactionOptions);
+        } catch (error) {
+            lastError = error;
+            
+            // Check if this is a retryable deadlock error
+            const isDeadlock = error.code === 'ER_LOCK_DEADLOCK' ||
+                              error.code === 'DEADLOCK' ||
+                              (error.errno === 1213) ||
+                              (error.sqlState === '40001');
+            
+            // Check if this is a lock timeout
+            const isLockTimeout = error.code === 'ER_LOCK_WAIT_TIMEOUT' ||
+                                 error.errno === 1205;
+            
+            // Only retry on transient database errors
+            const isRetryable = isDeadlock || isLockTimeout;
+            
+            if (isRetryable && attempt <= maxAttempts) {
+                // Wait before retry (with jitter to reduce contention)
+                const jitter = Math.random() * 0.5 + 0.75; // 0.75-1.25 multiplier
+                const waitTime = delay * attempt * jitter;
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+                continue;
+            }
+            
+            // Not retryable or max attempts reached
+            throw error;
+        }
+    }
+    
+    // Should never reach here, but TypeScript safety
+    throw lastError;
+}
+
+// ----------------------------------------------------------------------------
+// 4. EXPORTS
+// ----------------------------------------------------------------------------
+
+export default {
+    withTransaction,
+    withTransactionRetry,
+    VALID_ISOLATION_LEVELS,
+};===== app/core/errors.js =====
+/**
+ * app/core/errors.js
+ * Centralized error architecture for Tesnow
+ * Production-grade, secure, and scalable error handling
+ */
+
+import { randomBytes } from 'crypto';
+
+// ----------------------------------------------------------------------------
+// 1. ERROR CODES
+// ----------------------------------------------------------------------------
+
+export const ErrorCodes = {
+    // Client Errors (4xx)
+    BAD_REQUEST: 'BAD_REQUEST',
+    UNAUTHORIZED: 'UNAUTHORIZED',
+    FORBIDDEN: 'FORBIDDEN',
+    NOT_FOUND: 'NOT_FOUND',
+    METHOD_NOT_ALLOWED: 'METHOD_NOT_ALLOWED',
+    CONFLICT: 'CONFLICT',
+    VALIDATION_ERROR: 'VALIDATION_ERROR',
+    RATE_LIMITED: 'RATE_LIMITED',
+    CSRF_ERROR: 'CSRF_ERROR',
+    PAYLOAD_TOO_LARGE: 'PAYLOAD_TOO_LARGE',
+    UNSUPPORTED_MEDIA_TYPE: 'UNSUPPORTED_MEDIA_TYPE',
+    REQUEST_TIMEOUT: 'REQUEST_TIMEOUT',
+    
+    // Authentication/Authorization
+    AUTHENTICATION_FAILED: 'AUTHENTICATION_FAILED',
+    SESSION_INVALID: 'SESSION_INVALID',
+    TOKEN_EXPIRED: 'TOKEN_EXPIRED',
+    TOKEN_INVALID: 'TOKEN_INVALID',
+    INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS',
+    
+    // Server Errors (5xx)
+    INTERNAL_SERVER_ERROR: 'INTERNAL_SERVER_ERROR',
+    SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
+    DATABASE_ERROR: 'DATABASE_ERROR',
+    DATABASE_CONNECTION_ERROR: 'DATABASE_CONNECTION_ERROR',
+    DATABASE_TIMEOUT: 'DATABASE_TIMEOUT',
+    DATABASE_LOCK_ERROR: 'DATABASE_LOCK_ERROR',
+    DATABASE_DEADLOCK: 'DATABASE_DEADLOCK',
+    FILE_SYSTEM_ERROR: 'FILE_SYSTEM_ERROR',
+    CONFIGURATION_ERROR: 'CONFIGURATION_ERROR',
+    DEPENDENCY_ERROR: 'DEPENDENCY_ERROR',
+    CACHE_ERROR: 'CACHE_ERROR',
+    QUEUE_ERROR: 'QUEUE_ERROR',
+    EXTERNAL_SERVICE_ERROR: 'EXTERNAL_SERVICE_ERROR',
+};
+
+// ----------------------------------------------------------------------------
+// 2. HTTP STATUS CODE MAPPING
+// ----------------------------------------------------------------------------
+
+export const HttpStatusMap = {
+    [ErrorCodes.BAD_REQUEST]: 400,
+    [ErrorCodes.UNAUTHORIZED]: 401,
+    [ErrorCodes.FORBIDDEN]: 403,
+    [ErrorCodes.NOT_FOUND]: 404,
+    [ErrorCodes.METHOD_NOT_ALLOWED]: 405,
+    [ErrorCodes.CONFLICT]: 409,
+    [ErrorCodes.VALIDATION_ERROR]: 422,
+    [ErrorCodes.RATE_LIMITED]: 429,
+    [ErrorCodes.CSRF_ERROR]: 403,
+    [ErrorCodes.PAYLOAD_TOO_LARGE]: 413,
+    [ErrorCodes.UNSUPPORTED_MEDIA_TYPE]: 415,
+    [ErrorCodes.REQUEST_TIMEOUT]: 408,
+    [ErrorCodes.AUTHENTICATION_FAILED]: 401,
+    [ErrorCodes.SESSION_INVALID]: 401,
+    [ErrorCodes.TOKEN_EXPIRED]: 401,
+    [ErrorCodes.TOKEN_INVALID]: 401,
+    [ErrorCodes.INSUFFICIENT_PERMISSIONS]: 403,
+    [ErrorCodes.INTERNAL_SERVER_ERROR]: 500,
+    [ErrorCodes.SERVICE_UNAVAILABLE]: 503,
+    [ErrorCodes.DATABASE_ERROR]: 500,
+    [ErrorCodes.DATABASE_CONNECTION_ERROR]: 503,
+    [ErrorCodes.DATABASE_TIMEOUT]: 504,
+    [ErrorCodes.DATABASE_LOCK_ERROR]: 409,
+    [ErrorCodes.DATABASE_DEADLOCK]: 409,
+    [ErrorCodes.FILE_SYSTEM_ERROR]: 500,
+    [ErrorCodes.CONFIGURATION_ERROR]: 500,
+    [ErrorCodes.DEPENDENCY_ERROR]: 503,
+    [ErrorCodes.CACHE_ERROR]: 500,
+    [ErrorCodes.QUEUE_ERROR]: 500,
+    [ErrorCodes.EXTERNAL_SERVICE_ERROR]: 503,
+};
+
+// ----------------------------------------------------------------------------
+// 3. DATABASE ERROR MAPPING
+// ----------------------------------------------------------------------------
+
+export const DatabaseErrorMap = {
+    // MySQL/MariaDB duplicate entry
+    'ER_DUP_ENTRY': {
+        code: ErrorCodes.CONFLICT,
+        message: 'Resource already exists',
+        statusCode: 409,
+    },
+    // Foreign key constraint failure
+    'ER_NO_REFERENCED_ROW_2': {
+        code: ErrorCodes.BAD_REQUEST,
+        message: 'Referenced resource does not exist',
+        statusCode: 400,
+    },
+    // Row is referenced by another table
+    'ER_ROW_IS_REFERENCED_2': {
+        code: ErrorCodes.CONFLICT,
+        message: 'Resource is in use and cannot be modified',
+        statusCode: 409,
+    },
+    // Unknown column
+    'ER_BAD_FIELD_ERROR': {
+        code: ErrorCodes.INTERNAL_SERVER_ERROR,
+        message: 'Database error occurred',
+        statusCode: 500,
+    },
+    // Table doesn't exist
+    'ER_NO_SUCH_TABLE': {
+        code: ErrorCodes.DATABASE_ERROR,
+        message: 'Database error occurred',
+        statusCode: 500,
+    },
+    // Deadlock
+    'ER_LOCK_DEADLOCK': {
+        code: ErrorCodes.DATABASE_DEADLOCK,
+        message: 'Database operation conflict, please retry',
+        statusCode: 409,
+    },
+    // Lock timeout
+    'ER_LOCK_WAIT_TIMEOUT': {
+        code: ErrorCodes.DATABASE_TIMEOUT,
+        message: 'Database operation timed out, please retry',
+        statusCode: 504,
+    },
+};
+
+// ----------------------------------------------------------------------------
+// 4. BASE ERROR CLASS
+// ----------------------------------------------------------------------------
+
+export class AppError extends Error {
+    constructor(message, options = {}) {
+        super(message);
+        
+        // Set name to class name for better debugging
+        this.name = this.constructor.name;
+        
+        // Core error properties
+        this.code = options.code || ErrorCodes.INTERNAL_SERVER_ERROR;
+        this.statusCode = options.statusCode || 500;
+        this.isOperational = options.isOperational !== undefined ? options.isOperational : true;
+        
+        // Additional context
+        this.details = options.details || null;
+        this.cause = options.cause || null;
+        this.userId = options.userId || null;
+        this.requestId = options.requestId || null;
+        this.timestamp = new Date().toISOString();
+        
+        // Preserve stack trace
+        if (Error.captureStackTrace) {
+            Error.captureStackTrace(this, this.constructor);
+        }
+        
+        // If this is a security error, mark as non-operational for safe handling
+        if (this.code === ErrorCodes.CSRF_ERROR || 
+            this.code === ErrorCodes.AUTHENTICATION_FAILED ||
+            this.code === ErrorCodes.SESSION_INVALID) {
+            this.isOperational = true; // These are expected, but should be logged carefully
+        }
+    }
+    
+    // Helper to convert to safe response
+    toSafeResponse(options = {}) {
+        const isDevelopment = options.development || false;
+        const includeStack = options.includeStack || false;
+        const requestId = options.requestId || this.requestId;
+        
+        const response = {
+            success: false,
+            error: {
+                code: this.code,
+                message: this.message,
+            },
+        };
+        
+        // Include request ID if available
+        if (requestId) {
+            response.requestId = requestId;
+        }
+        
+        // Include details only if they exist and are safe
+        if (this.details) {
+            response.error.details = this.sanitizeDetails(this.details);
+        }
+        
+        // Development-only information
+        if (isDevelopment) {
+            response.error.type = this.name;
+            response.error.statusCode = this.statusCode;
+            if (includeStack && this.stack) {
+                response.error.stack = this.stack;
+            }
+            if (this.cause) {
+                response.error.cause = this.serializeCause(this.cause);
+            }
+        }
+        
+        return response;
+    }
+    
+    // Sanitize error details for client consumption
+    sanitizeDetails(details) {
+        if (!details || typeof details !== 'object') {
+            return details;
+        }
+        
+        // If details is an array of validation errors
+        if (Array.isArray(details)) {
+            return details.map(item => {
+                if (typeof item === 'object' && item !== null) {
+                    // Remove any potentially sensitive fields
+                    const sanitized = { ...item };
+                    delete sanitized.sql;
+                    delete sanitized.password;
+                    delete sanitized.token;
+                    delete sanitized.secret;
+                    delete sanitized.key;
+                    return sanitized;
+                }
+                return item;
+            });
+        }
+        
+        // If details is an object, sanitize it
+        const sanitized = { ...details };
+        const sensitiveFields = [
+            'password', 'token', 'secret', 'key', 'auth',
+            'credentials', 'sql', 'connection', 'db', 'database',
+            'creditCard', 'cvv', 'ssn', 'socialSecurity',
+            'apiKey', 'apiSecret', 'oauth', 'accessToken'
+        ];
+        
+        for (const field of sensitiveFields) {
+            if (field in sanitized) {
+                delete sanitized[field];
+            }
+        }
+        
+        return sanitized;
+    }
+    
+    // Serialize cause for development/debugging
+    serializeCause(cause) {
+        if (cause instanceof Error) {
+            return {
+                name: cause.name,
+                message: cause.message,
+                stack: cause.stack,
+            };
+        }
+        return cause;
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 5. SPECIALIZED ERROR CLASSES
+// ----------------------------------------------------------------------------
+
+// Client Errors (4xx)
+export class BadRequestError extends AppError {
+    constructor(message = 'Bad request', options = {}) {
+        super(message, {
+            code: ErrorCodes.BAD_REQUEST,
+            statusCode: 400,
+            isOperational: true,
+            ...options,
+        });
+    }
+}
+
+export class ValidationError extends AppError {
+    constructor(message = 'Validation failed', options = {}) {
+        super(message, {
+            code: ErrorCodes.VALIDATION_ERROR,
+            statusCode: 422,
+            isOperational: true,
+            ...options,
+        });
+    }
+}
+
+export class AuthenticationError extends AppError {
+    constructor(message = 'Authentication failed', options = {}) {
+        super(message, {
+            code: ErrorCodes.AUTHENTICATION_FAILED,
+            statusCode: 401,
+            isOperational: true,
+            ...options,
+        });
+    }
+}
+
+export class AuthorizationError extends AppError {
+    constructor(message = 'Access denied', options = {}) {
+        super(message, {
+            code: ErrorCodes.FORBIDDEN,
+            statusCode: 403,
+            isOperational: true,
+            ...options,
+        });
+    }
+}
+
+export class NotFoundError extends AppError {
+    constructor(message = 'Resource not found', options = {}) {
+        super(message, {
+            code: ErrorCodes.NOT_FOUND,
+            statusCode: 404,
+            isOperational: true,
+            ...options,
+        });
+    }
+}
+
+export class ConflictError extends AppError {
+    constructor(message = 'Resource conflict', options = {}) {
+        super(message, {
+            code: ErrorCodes.CONFLICT,
+            statusCode: 409,
+            isOperational: true,
+            ...options,
+        });
+    }
+}
+
+export class RateLimitError extends AppError {
+    constructor(message = 'Rate limit exceeded', options = {}) {
+        super(message, {
+            code: ErrorCodes.RATE_LIMITED,
+            statusCode: 429,
+            isOperational: true,
+            ...options,
+        });
+    }
+}
+
+export class PayloadTooLargeError extends AppError {
+    constructor(message = 'Request payload too large', options = {}) {
+        super(message, {
+            code: ErrorCodes.PAYLOAD_TOO_LARGE,
+            statusCode: 413,
+            isOperational: true,
+            ...options,
+        });
+    }
+}
+
+// Server Errors (5xx)
+export class DatabaseError extends AppError {
+    constructor(message = 'Database error occurred', options = {}) {
+        super(message, {
+            code: ErrorCodes.DATABASE_ERROR,
+            statusCode: 500,
+            isOperational: false,
+            ...options,
+        });
+    }
+}
+
+export class ServiceUnavailableError extends AppError {
+    constructor(message = 'Service temporarily unavailable', options = {}) {
+        super(message, {
+            code: ErrorCodes.SERVICE_UNAVAILABLE,
+            statusCode: 503,
+            isOperational: true,
+            ...options,
+        });
+    }
+}
+
+export class ConfigurationError extends AppError {
+    constructor(message = 'Configuration error', options = {}) {
+        super(message, {
+            code: ErrorCodes.CONFIGURATION_ERROR,
+            statusCode: 500,
+            isOperational: false,
+            ...options,
+        });
+    }
+}
+
+export class SecurityError extends AppError {
+    constructor(message = 'Security violation detected', options = {}) {
+        super(message, {
+            code: ErrorCodes.CSRF_ERROR,
+            statusCode: 403,
+            isOperational: true,
+            ...options,
+        });
+    }
+}
+
+export class DependencyError extends AppError {
+    constructor(message = 'Dependency error', options = {}) {
+        super(message, {
+            code: ErrorCodes.DEPENDENCY_ERROR,
+            statusCode: 503,
+            isOperational: false,
+            ...options,
+        });
+    }
+}
+
+export class FileSystemError extends AppError {
+    constructor(message = 'File system error', options = {}) {
+        super(message, {
+            code: ErrorCodes.FILE_SYSTEM_ERROR,
+            statusCode: 500,
+            isOperational: false,
+            ...options,
+        });
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 6. ERROR NORMALIZATION
+// ----------------------------------------------------------------------------
+
+/**
+ * Normalize any error into a structured format
+ * @param {Error} error - The error to normalize
+ * @param {Object} options - Normalization options
+ * @returns {AppError} Normalized AppError instance
+ */
+export function normalizeError(error, options = {}) {
+    // If already an AppError, return it
+    if (error instanceof AppError) {
+        return error;
+    }
+    
+    const requestId = options.requestId || error.requestId || null;
+    const userId = options.userId || error.userId || null;
+    
+    // Handle known error types
+    if (error.name === 'ValidationError' || error.name === 'ZodError') {
+        return new ValidationError('Validation failed', {
+            details: extractValidationDetails(error),
+            cause: error,
+            requestId,
+            userId,
+        });
+    }
+    
+    if (error.name === 'UnauthorizedError' || error.code === 'UNAUTHORIZED') {
+        return new AuthenticationError('Authentication required', {
+            cause: error,
+            requestId,
+            userId,
+        });
+    }
+    
+    if (error.code === 'LIMIT_FILE_SIZE' || error.type === 'entity.too.large') {
+        return new PayloadTooLargeError('Request payload too large', {
+            cause: error,
+            requestId,
+            userId,
+        });
+    }
+    
+    if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
+        return new ServiceUnavailableError('Service temporarily unavailable', {
+            cause: error,
+            requestId,
+            userId,
+        });
+    }
+    
+    if (error.code === 'PROXY_AUTHENTICATION_REQUIRED') {
+        return new AuthenticationError('Proxy authentication required', {
+            cause: error,
+            requestId,
+            userId,
+        });
+    }
+    
+    // Handle MySQL/MariaDB errors
+    if (error.code && error.code.startsWith('ER_')) {
+        return normalizeDatabaseError(error, { requestId, userId });
+    }
+    
+    // Handle SQL errors (generic)
+    if (error.sql || error.sqlMessage) {
+        return new DatabaseError('Database error occurred', {
+            details: { 
+                code: error.code || 'SQL_ERROR',
+                message: error.sqlMessage || 'Database error',
+            },
+            cause: error,
+            requestId,
+            userId,
+        });
+    }
+    
+    // Handle JSON parsing errors
+    if (error instanceof SyntaxError && error.status === 400 && 'body' in error) {
+        return new BadRequestError('Invalid JSON payload', {
+            cause: error,
+            requestId,
+            userId,
+        });
+    }
+    
+    // Handle unknown errors
+    return new AppError('An unexpected error occurred', {
+        code: ErrorCodes.INTERNAL_SERVER_ERROR,
+        statusCode: 500,
+        isOperational: false,
+        cause: error,
+        requestId,
+        userId,
+        details: {
+            errorType: error.name || 'UnknownError',
+            errorMessage: error.message || 'Unknown error',
+        },
+    });
+}
+
+/**
+ * Normalize database errors
+ * @param {Error} error - Database error
+ * @param {Object} context - Context information
+ * @returns {AppError} Normalized AppError
+ */
+function normalizeDatabaseError(error, context = {}) {
+    const { requestId, userId } = context;
+    
+    // Check if this is a known database error
+    const mappedError = DatabaseErrorMap[error.code];
+    
+    if (mappedError) {
+        // Create appropriate error class based on code
+        if (mappedError.code === ErrorCodes.CONFLICT) {
+            return new ConflictError(mappedError.message, {
+                details: {
+                    code: error.code,
+                    column: error.sqlMessage ? extractColumnName(error.sqlMessage) : null,
+                },
+                cause: error,
+                requestId,
+                userId,
+            });
+        }
+        
+        if (mappedError.code === ErrorCodes.DATABASE_DEADLOCK || 
+            mappedError.code === ErrorCodes.DATABASE_TIMEOUT) {
+            return new DatabaseError(mappedError.message, {
+                code: mappedError.code,
+                statusCode: mappedError.statusCode,
+                details: {
+                    code: error.code,
+                },
+                cause: error,
+                requestId,
+                userId,
+            });
+        }
+        
+        // Generic database error
+        return new DatabaseError(mappedError.message, {
+            code: mappedError.code,
+            statusCode: mappedError.statusCode,
+            details: {
+                code: error.code,
+            },
+            cause: error,
+            requestId,
+            userId,
+        });
+    }
+    
+    // Unmapped database error
+    return new DatabaseError('Database error occurred', {
+        details: {
+            code: error.code || 'UNKNOWN_DATABASE_ERROR',
+        },
+        cause: error,
+        requestId,
+        userId,
+    });
+}
+
+/**
+ * Extract column name from SQL error message
+ */
+function extractColumnName(sqlMessage) {
+    if (!sqlMessage) return null;
+    const match = sqlMessage.match(/for key '(.+?)'/);
+    return match ? match[1] : null;
+}
+
+/**
+ * Extract validation details from validation errors
+ */
+function extractValidationDetails(error) {
+    if (error.details) {
+        return error.details;
+    }
+    
+    if (error.errors) {
+        // Zod errors or similar
+        if (Array.isArray(error.errors)) {
+            const details = {};
+            for (const err of error.errors) {
+                const path = err.path ? err.path.join('.') : 'unknown';
+                details[path] = err.message || 'Invalid value';
+            }
+            return details;
+        }
+        return error.errors;
+    }
+    
+    if (error.message) {
+        return { message: error.message };
+    }
+    
+    return null;
+}
+
+// ----------------------------------------------------------------------------
+// 7. SAFE ERROR RESPONSE
+// ----------------------------------------------------------------------------
+
+/**
+ * Convert an error to a safe response object
+ * @param {Error} error - The error to convert
+ * @param {Object} options - Response options
+ * @param {boolean} options.development - Include development details
+ * @param {boolean} options.includeStack - Include stack trace
+ * @param {string} options.requestId - Request ID for tracking
+ * @param {string} options.defaultMessage - Default message override
+ * @returns {Object} Safe error response
+ */
+export function toSafeErrorResponse(error, options = {}) {
+    const normalized = normalizeError(error, { 
+        requestId: options.requestId 
+    });
+    
+    const response = {
+        success: false,
+        error: {
+            code: normalized.code,
+            message: options.defaultMessage || normalized.message,
+        },
+    };
+    
+    // Include request ID
+    if (options.requestId || normalized.requestId) {
+        response.requestId = options.requestId || normalized.requestId;
+    }
+    
+    // Include details if they exist and are safe
+    if (normalized.details) {
+        const sanitizedDetails = normalized.sanitizeDetails(normalized.details);
+        if (sanitizedDetails && Object.keys(sanitizedDetails).length > 0) {
+            response.error.details = sanitizedDetails;
+        }
+    }
+    
+    // Development extras
+    if (options.development) {
+        response.error.type = normalized.name;
+        response.error.statusCode = normalized.statusCode;
+        response.error.isOperational = normalized.isOperational;
+        
+        if (options.includeStack && normalized.stack) {
+            response.error.stack = normalized.stack;
+        }
+        
+        if (normalized.cause) {
+            response.error.cause = normalized.serializeCause(normalized.cause);
+        }
+    }
+    
+    return response;
+}
+
+// ----------------------------------------------------------------------------
+// 8. OPERATIONAL ERROR CHECK
+// ----------------------------------------------------------------------------
+
+/**
+ * Check if an error is operational (safe to show to users)
+ * @param {Error} error - The error to check
+ * @returns {boolean} True if operational
+ */
+export function isOperationalError(error) {
+    if (error instanceof AppError) {
+        return error.isOperational;
+    }
+    
+    // Check for common non-operational errors
+    if (error instanceof TypeError || 
+        error instanceof ReferenceError || 
+        error instanceof SyntaxError && !error.status) {
+        return false;
+    }
+    
+    // Check for specific error codes that are operational
+    const operationalCodes = [
+        'ER_DUP_ENTRY',
+        'ER_NO_REFERENCED_ROW_2',
+        'ER_ROW_IS_REFERENCED_2',
+        'LIMIT_FILE_SIZE',
+        'PROXY_AUTHENTICATION_REQUIRED',
+    ];
+    
+    if (error.code && operationalCodes.includes(error.code)) {
+        return true;
+    }
+    
+    return false;
+}
+
+// ----------------------------------------------------------------------------
+// 9. ERROR LOGGING UTILITY
+// ----------------------------------------------------------------------------
+
+/**
+ * Prepare error for logging (sanitized)
+ * @param {Error} error - The error to log
+ * @param {Object} context - Additional context
+ * @returns {Object} Safe error log object
+ */
+export function prepareErrorForLogging(error, context = {}) {
+    const normalized = normalizeError(error, {
+        requestId: context.requestId,
+        userId: context.userId,
+    });
+    
+    const logEntry = {
+        timestamp: new Date().toISOString(),
+        error: {
+            name: normalized.name,
+            code: normalized.code,
+            message: normalized.message,
+            statusCode: normalized.statusCode,
+            isOperational: normalized.isOperational,
+            stack: normalized.stack,
+            requestId: normalized.requestId,
+            userId: normalized.userId,
+        },
+        context: {
+            ...context,
+            // Remove sensitive data from context
+            password: undefined,
+            token: undefined,
+            secret: undefined,
+            key: undefined,
+            auth: undefined,
+            credentials: undefined,
+        },
+    };
+    
+    // Include cause if available (for debugging)
+    if (normalized.cause) {
+        logEntry.error.cause = {
+            name: normalized.cause.name,
+            message: normalized.cause.message,
+        };
+    }
+    
+    return logEntry;
+}
+
+// ----------------------------------------------------------------------------
+// 10. RE-EXPORT FOR CONVENIENCE
+// ----------------------------------------------------------------------------
+
+export default {
+    AppError,
+    ErrorCodes,
+    HttpStatusMap,
+    DatabaseErrorMap,
+    
+    // Specialized errors
+    BadRequestError,
+    ValidationError,
+    AuthenticationError,
+    AuthorizationError,
+    NotFoundError,
+    ConflictError,
+    RateLimitError,
+    PayloadTooLargeError,
+    DatabaseError,
+    ServiceUnavailableError,
+    ConfigurationError,
+    SecurityError,
+    DependencyError,
+    FileSystemError,
+    
+    // Utilities
+    normalizeError,
+    toSafeErrorResponse,
+    isOperationalError,
+    prepareErrorForLogging,
+};
+
+// ----------------------------------------------------------------------------
+// EXPLANATION
+// ----------------------------------------------------------------------------
+
+/**
+ * ERROR HIERARCHY
+ * 
+ * AppError (Base)
+ * ├── BadRequestError (400)
+ * ├── ValidationError (422)
+ * ├── AuthenticationError (401)
+ * ├── AuthorizationError (403)
+ * ├── NotFoundError (404)
+ * ├── ConflictError (409)
+ * ├── RateLimitError (429)
+ * ├── PayloadTooLargeError (413)
+ * ├── DatabaseError (500)
+ * ├── ServiceUnavailableError (503)
+ * ├── ConfigurationError (500)
+ * ├── SecurityError (403)
+ * ├── DependencyError (503)
+ * └── FileSystemError (500)
+ * 
+ * HTTP STATUS MAPPING
+ * 
+ * Error codes are mapped to appropriate HTTP status codes via HttpStatusMap.
+ * Client errors (4xx) are operational and can be shown to users.
+ * Server errors (5xx) are non-operational and should not expose details.
+ * 
+ * PRODUCTION ERROR SANITIZATION
+ * 
+ * - Stack traces are never exposed in production
+ * - Sensitive fields are removed from error details
+ * - Generic error messages are used for security
+ * - Request ID is included for tracking
+ * - Database errors are sanitized before being shown
+ * 
+ * DATABASE ERROR HANDLING
+ * 
+ * Common MySQL/MariaDB errors are mapped:
+ * - ER_DUP_ENTRY → 409 CONFLICT
+ * - ER_DEADLOCK → 409 CONFLICT with retry instructions
+ * - ER_LOCK_WAIT_TIMEOUT → 504 TIMEOUT
+ * - Foreign key errors → 400 BAD_REQUEST
+ * 
+ * HOW APP.JS SHOULD USE THIS MODULE
+ * 
+ * In app/core/app.js (Express error handler):
+ * 
+ * import { toSafeErrorResponse, normalizeError } from './errors.js';
+ * 
+ * app.use((err, req, res, next) => {
+ *     const requestId = req.id || 'unknown';
+ *     const isDevelopment = process.env.NODE_ENV !== 'production';
+ *     
+ *     // Log error (using logger)
+ *     // logger.error({ err, requestId, path: req.path });
+ *     
+ *     // Get safe response
+ *     const response = toSafeErrorResponse(err, {
+ *         development: isDevelopment,
+ *         requestId: requestId,
+ *         includeStack: isDevelopment,
+ *     });
+ *     
+ *     const statusCode = response.error.statusCode || 500;
+ *     res.status(statusCode).json(response);
+ * });
+ * 
+ * CONTROLLER/SERVICE USAGE:
+ * 
+ * import { ValidationError, NotFoundError } from '../core/errors.js';
+ * 
+ * // In a service:
+ * if (!post) {
+ *     throw new NotFoundError('Post not found');
+ * }
+ * 
+ * // In validation:
+ * if (!email) {
+ *     throw new ValidationError('Invalid email', {
+ *         details: { email: 'Email is required' }
+ *     });
+ * }
+ */ ===== app/repositories/user.repository.js =====
+/**
+ * app/repositories/user.repository.js
+ * User data access – dashboard counts, recent users, and authentication lookup.
+ */
+
+import { getDbPool } from '../config/database.config.js';
+
+const DEFAULT_LIMIT = 10;
+const MAX_LIMIT = 100;
+
+function validatePositiveInteger(value, name) {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative integer`);
+  }
+  return value;
+}
+
+function validateLimit(limit) {
+  const val = validatePositiveInteger(limit, 'limit');
+  if (val > MAX_LIMIT) throw new Error(`limit cannot exceed ${MAX_LIMIT}`);
+  return val;
+}
+
+export function createUserRepository(pool = getDbPool()) {
+  return {
+    // --- Dashboard / list methods ---
+    async countAll() {
+      const [rows] = await pool.query(
+        'SELECT COUNT(*) AS count FROM users WHERE deleted_at IS NULL'
+      );
+      return Number(rows[0].count);
+    },
+
+    async findRecent({ limit = DEFAULT_LIMIT, offset = 0 }) {
+      const safeLimit = validateLimit(limit);
+      const safeOffset = validatePositiveInteger(offset, 'offset');
+      const [rows] = await pool.query(
+        `SELECT
+          id,
+          username,
+          first_name,
+          last_name,
+          avatar_url,
+          created_at
+        FROM users
+        WHERE deleted_at IS NULL
+        ORDER BY created_at DESC, id DESC
+        LIMIT ? OFFSET ?`,
+        [safeLimit, safeOffset]
+      );
+      return rows;
+    },
+
+    // --- Authentication methods ---
+    /**
+     * Find a user by username or email (case‑insensitive, via collation).
+     * Returns password_hash and all fields needed for authentication.
+     */
+    async findByUsernameOrEmail(usernameOrEmail) {
+      if (typeof usernameOrEmail !== 'string' || usernameOrEmail.trim() === '') {
+        throw new Error('usernameOrEmail must be a non-empty string');
+      }
+      const [rows] = await pool.query(
+        `SELECT
+          id,
+          username,
+          email,
+          password_hash,
+          status,
+          created_at,
+          deleted_at
+        FROM users
+        WHERE (username = ? OR email = ?) AND deleted_at IS NULL
+        LIMIT 1`,
+        [usernameOrEmail, usernameOrEmail]
+      );
+      return rows[0] || null;
+    },
+
+    /**
+     * Find a user by ID (used to re‑validate authenticated sessions).
+     */
+    async findById(id) {
+      if (!Number.isInteger(id) || id <= 0) {
+        throw new Error('id must be a positive integer');
+      }
+      const [rows] = await pool.query(
+        `SELECT
+          id,
+          username,
+          email,
+          password_hash,
+          status,
+          created_at,
+          deleted_at
+        FROM users
+        WHERE id = ? AND deleted_at IS NULL
+        LIMIT 1`,
+        [id]
+      );
+      return rows[0] || null;
+    },
+  };
+}
+
+export default createUserRepository();===== app/services/auth/auth.service.js =====
+/**
+ * app/services/auth/auth.service.js
+ * Authentication business logic – login, user validation.
+ */
+
+import { AuthenticationError } from '../../core/errors.js';
+import { createChildLogger } from '../../core/logger.js';
+import { USER_STATUS } from '../../core/constants.js';
+import userRepository from '../../repositories/user.repository.js';
+import { verifyPassword } from './password.service.js';
+
+const logger = createChildLogger({ module: 'auth-service' });
+
+// Only 'active' users are allowed to log in.
+const ALLOWED_LOGIN_STATUSES = new Set([USER_STATUS.ACTIVE]);
+
+export function createAuthService(userRepo = userRepository) {
+  return {
+    /**
+     * Authenticate a user with username/email and password.
+     * Returns the user object (without password_hash) on success.
+     * @throws {AuthenticationError} If credentials invalid or account not eligible.
+     */
+    async login(usernameOrEmail, password) {
+      if (!usernameOrEmail || !password) {
+        throw new AuthenticationError('Username/email and password are required');
+      }
+
+      // 1. Find user
+      const user = await userRepo.findByUsernameOrEmail(usernameOrEmail);
+      if (!user) {
+        throw new AuthenticationError('Invalid credentials');
+      }
+
+      // 2. Verify password
+      const isMatch = await verifyPassword(password, user.password_hash);
+      if (!isMatch) {
+        throw new AuthenticationError('Invalid credentials');
+      }
+
+      // 3. Check status
+      if (!ALLOWED_LOGIN_STATUSES.has(user.status)) {
+        logger.warn({ userId: user.id, status: user.status }, 'Login attempt with disallowed status');
+        throw new AuthenticationError('Account is not eligible for login');
+      }
+
+      // 4. Ensure not soft‑deleted (extra safety; query already excludes)
+      if (user.deleted_at) {
+        throw new AuthenticationError('Account no longer exists');
+      }
+
+      // 5. Remove sensitive data
+      const { password_hash, ...safeUser } = user;
+      logger.info({ userId: user.id }, 'User authenticated');
+      return safeUser;
+    },
+
+    /**
+     * Get authenticated user by ID, verifying status and not deleted.
+     * Used by authentication middleware to re‑validate a session.
+     */
+    async getAuthenticatedUser(userId) {
+      if (!userId) return null;
+      const user = await userRepo.findById(userId);
+      if (!user) return null;
+      if (user.deleted_at) return null;
+      if (!ALLOWED_LOGIN_STATUSES.has(user.status)) return null;
+      const { password_hash, ...safeUser } = user;
+      return safeUser;
+    },
+  };
+}
+
+export default createAuthService();===== app/services/auth/rbac.service.js =====
+/**
+ * app/services/auth/rbac.service.js
+ * RBAC business logic – permission checking, read-only foundation,
+ * role CRUD, and role ↔ permission management.
+ *
+ * This service is HTTP‑agnostic and does not access req/res/session.
+ */
+
+import { createChildLogger } from '../../core/logger.js';
+import {
+  AuthorizationError,
+  NotFoundError,
+  ValidationError,
+  ConflictError,
+} from '../../core/errors.js';
+import { withTransaction } from '../../core/transactions.js';
+import {
+  getRequestId,
+  getUserId,
+  getAdminId,
+} from '../../core/request-context.js';
+import roleRepository from '../../repositories/role.repository.js';
+import permissionRepository from '../../repositories/permission.repository.js';
+import rolePermissionRepository from '../../repositories/role-permission.repository.js';
+import auditRepository from '../../repositories/audit.repository.js';
+import securityRepository from '../../repositories/security.repository.js';
+
+const logger = createChildLogger({ module: 'rbac-service' });
+
+// ----------------------------------------------------------------------------
+// Internal helpers
+// ----------------------------------------------------------------------------
+
+/**
+ * Strictly normalize a numeric/string ID to a positive safe integer, or null.
+ * Accepts: numeric positive safe integer, or digit-only string.
+ * Rejects: empty, non-digits, decimals, zero, negatives, unsafe integers.
+ */
+function normalizePositiveId(rawId) {
+  let numId;
+
+  if (typeof rawId === 'string') {
+    if (!/^\d+$/.test(rawId)) {
+      return null;
+    }
+    numId = Number(rawId);
+  } else {
+    numId = rawId;
+  }
+
+  if (!Number.isSafeInteger(numId) || numId <= 0) {
+    return null;
+  }
+
+  return numId;
+}
+
+function snapshotRole(role) {
+  if (!role) return null;
+  return {
+    name: role.name,
+    slug: role.slug,
+    description: role.description,
+    is_system_role: Boolean(role.is_system_role),
+  };
+}
+
+// ----------------------------------------------------------------------------
+// Factory
+// ----------------------------------------------------------------------------
+
+export function createRbacService(
+  roleRepo = roleRepository,
+  permissionRepo = permissionRepository,
+  auditRepo = auditRepository,
+  securityRepo = securityRepository,
+  rolePermissionRepo = rolePermissionRepository
+) {
+  return {
+    /**
+     * Check if an admin has a specific permission.
+     */
+    async hasPermission(adminId, permissionSlug) {
+      if (!Number.isInteger(adminId) || adminId <= 0) {
+        throw new Error('adminId must be a positive integer');
+      }
+
+      if (typeof permissionSlug !== 'string') {
+        throw new Error('permissionSlug must be a string');
+      }
+      const trimmed = permissionSlug.trim();
+      if (trimmed === '') {
+        throw new Error('permissionSlug must be a non-empty string');
+      }
+
+      const result = await roleRepo.hasPermission(adminId, trimmed);
+
+      logger.debug({ adminId, permissionSlug: trimmed, result }, 'Permission checked');
+
+      return result;
+    },
+
+    /**
+     * List all non‑deleted roles.
+     */
+    async getRoles() {
+      return await roleRepo.findAll();
+    },
+
+    /**
+     * Get a single non‑deleted role by ID.
+     * Returns null for invalid or unknown IDs.
+     */
+    async getRole(id) {
+      const numId = normalizePositiveId(id);
+      if (numId === null) {
+        return null;
+      }
+      return await roleRepo.findById(numId);
+    },
+
+    /**
+     * List all permissions.
+     */
+    async getPermissions() {
+      return await permissionRepo.findAll();
+    },
+
+    // ------------------------------------------------------------------------
+    // Role CRUD (Phase 3B-5B)
+    // ------------------------------------------------------------------------
+
+    async createRole({ name, slug, description } = {}, actor = {}) {
+      if (typeof name !== 'string' || name.trim() === '') {
+        throw new ValidationError('name is required and must be a non-empty string');
+      }
+      if (typeof slug !== 'string' || slug.trim() === '') {
+        throw new ValidationError('slug is required and must be a non-empty string');
+      }
+      if (description !== undefined && description !== null && typeof description !== 'string') {
+        throw new ValidationError('description must be a string or null');
+      }
+
+      const cleanName = name.trim();
+      const cleanSlug = slug.trim();
+      const cleanDescription = (description === undefined || description === null)
+        ? null
+        : description.trim();
+
+      const requestId = getRequestId();
+      const actorUserId = actor.userId !== undefined ? actor.userId : getUserId();
+      const actorAdminId = actor.adminId !== undefined ? actor.adminId : getAdminId();
+
+      return await withTransaction(async (connection) => {
+        const role = await roleRepo.create(
+          { name: cleanName, slug: cleanSlug, description: cleanDescription },
+          connection
+        );
+
+        if (!role) {
+          throw new Error('Role creation failed');
+        }
+
+        await auditRepo.log(
+          {
+            action: 'create',
+            entityType: 'role',
+            entityId: role.id,
+            beforeData: null,
+            afterData: snapshotRole(role),
+            actorUserId,
+            actorAdminId,
+            requestId,
+          },
+          connection
+        );
+
+        return role;
+      });
+    },
+
+    async updateRole(id, patch = {}, actor = {}) {
+      const numId = normalizePositiveId(id);
+      if (numId === null) {
+        throw new NotFoundError('Role not found');
+      }
+
+      const existing = await roleRepo.findById(numId);
+      if (!existing) {
+        throw new NotFoundError('Role not found');
+      }
+
+      if (Boolean(existing.is_system_role)) {
+        try {
+          await securityRepo.logEvent({
+            userId: actor.userId !== undefined ? actor.userId : getUserId(),
+            eventType: 'role.system_role_tamper_attempt',
+            severity: 'high',
+            isSuccess: false,
+            requestId: getRequestId(),
+            metadata: {
+              roleId: numId,
+              roleSlug: existing.slug,
+              operation: 'update',
+            },
+          });
+        } catch (logError) {
+          logger.error(
+            { err: logError, roleId: numId },
+            'Failed to log system-role tamper attempt'
+          );
+        }
+        throw new AuthorizationError('System roles cannot be modified');
+      }
+
+      const cleanPatch = {};
+
+      if (patch.name !== undefined) {
+        if (typeof patch.name !== 'string' || patch.name.trim() === '') {
+          throw new ValidationError('name must be a non-empty string');
+        }
+        cleanPatch.name = patch.name.trim();
+      }
+
+      if (patch.slug !== undefined) {
+        if (typeof patch.slug !== 'string' || patch.slug.trim() === '') {
+          throw new ValidationError('slug must be a non-empty string');
+        }
+        cleanPatch.slug = patch.slug.trim();
+      }
+
+      if (patch.description !== undefined) {
+        if (patch.description !== null && typeof patch.description !== 'string') {
+          throw new ValidationError('description must be a string or null');
+        }
+        cleanPatch.description = (patch.description === null)
+          ? null
+          : patch.description.trim();
+      }
+
+      if (Object.keys(cleanPatch).length === 0) {
+        throw new ValidationError('At least one field must be provided');
+      }
+
+      const requestId = getRequestId();
+      const actorUserId = actor.userId !== undefined ? actor.userId : getUserId();
+      const actorAdminId = actor.adminId !== undefined ? actor.adminId : getAdminId();
+
+      return await withTransaction(async (connection) => {
+        const updated = await roleRepo.update(numId, cleanPatch, connection);
+        if (!updated) {
+          throw new NotFoundError('Role not found');
+        }
+
+        await auditRepo.log(
+          {
+            action: 'update',
+            entityType: 'role',
+            entityId: numId,
+            beforeData: snapshotRole(existing),
+            afterData: snapshotRole(updated),
+            actorUserId,
+            actorAdminId,
+            requestId,
+          },
+          connection
+        );
+
+        return updated;
+      });
+    },
+
+    async deleteRole(id, actor = {}) {
+      const numId = normalizePositiveId(id);
+      if (numId === null) {
+        throw new NotFoundError('Role not found');
+      }
+
+      const existing = await roleRepo.findById(numId);
+      if (!existing) {
+        throw new NotFoundError('Role not found');
+      }
+
+      if (Boolean(existing.is_system_role)) {
+        try {
+          await securityRepo.logEvent({
+            userId: actor.userId !== undefined ? actor.userId : getUserId(),
+            eventType: 'role.system_role_tamper_attempt',
+            severity: 'high',
+            isSuccess: false,
+            requestId: getRequestId(),
+            metadata: {
+              roleId: numId,
+              roleSlug: existing.slug,
+              operation: 'delete',
+            },
+          });
+        } catch (logError) {
+          logger.error(
+            { err: logError, roleId: numId },
+            'Failed to log system-role tamper attempt'
+          );
+        }
+        throw new AuthorizationError('System roles cannot be deleted');
+      }
+
+      const requestId = getRequestId();
+      const actorUserId = actor.userId !== undefined ? actor.userId : getUserId();
+      const actorAdminId = actor.adminId !== undefined ? actor.adminId : getAdminId();
+
+      await withTransaction(async (connection) => {
+        const deleted = await roleRepo.delete(numId, connection);
+        if (!deleted) {
+          throw new NotFoundError('Role not found');
+        }
+
+        await auditRepo.log(
+          {
+            action: 'delete',
+            entityType: 'role',
+            entityId: numId,
+            beforeData: snapshotRole(existing),
+            afterData: null,
+            actorUserId,
+            actorAdminId,
+            requestId,
+          },
+          connection
+        );
+      });
+
+      return true;
+    },
+
+    // ------------------------------------------------------------------------
+    // Role ↔ Permission (Phase 3B-5C)
+    // ------------------------------------------------------------------------
+
+    /**
+     * Read a role's assigned permissions.
+     */
+    async getRolePermissions(roleId) {
+      const numRoleId = normalizePositiveId(roleId);
+      if (numRoleId === null) {
+        throw new ValidationError('roleId must be a positive integer');
+      }
+
+      const role = await roleRepo.findById(numRoleId);
+      if (!role) {
+        throw new NotFoundError('Role not found');
+      }
+
+      const permissions = await rolePermissionRepo.findByRoleId(numRoleId);
+
+      return { role, permissions };
+    },
+
+    /**
+     * Grant a permission to a role.
+     * Self-escalation prevention: the caller must already possess the target permission.
+     */
+    async grantPermissionToRole(roleId, permissionId, actor = {}) {
+      const numRoleId = normalizePositiveId(roleId);
+      if (numRoleId === null) {
+        throw new ValidationError('roleId must be a positive integer');
+      }
+      const numPermissionId = normalizePositiveId(permissionId);
+      if (numPermissionId === null) {
+        throw new ValidationError('permissionId must be a positive integer');
+      }
+
+      const role = await roleRepo.findById(numRoleId);
+      if (!role) {
+        throw new NotFoundError('Role not found');
+      }
+
+      // System-role protection — durable security event, independent of any transaction.
+      if (Boolean(role.is_system_role)) {
+        try {
+          await securityRepo.logEvent({
+            userId: actor.userId !== undefined ? actor.userId : getUserId(),
+            eventType: 'role.system_role_tamper_attempt',
+            severity: 'high',
+            isSuccess: false,
+            requestId: getRequestId(),
+            metadata: {
+              roleId: numRoleId,
+              roleSlug: role.slug,
+              permissionId: numPermissionId,
+              operation: 'grant',
+            },
+          });
+        } catch (logError) {
+          logger.error(
+            { err: logError, roleId: numRoleId, permissionId: numPermissionId },
+            'Failed to log system-role tamper attempt'
+          );
+        }
+        throw new AuthorizationError('System role permissions cannot be modified');
+      }
+
+      const permission = await permissionRepo.findById(numPermissionId);
+      if (!permission) {
+        throw new NotFoundError('Permission not found');
+      }
+
+      // Self-escalation prevention.
+      const callerAdminId = actor.adminId !== undefined ? actor.adminId : getAdminId();
+      if (!callerAdminId) {
+        throw new AuthorizationError('Caller admin identity is required');
+      }
+
+      const callerPossesses = await roleRepo.hasPermission(callerAdminId, permission.slug);
+      if (!callerPossesses) {
+        throw new AuthorizationError(
+          'Cannot grant a permission you do not possess'
+        );
+      }
+
+      const requestId = getRequestId();
+      const actorUserId = actor.userId !== undefined ? actor.userId : getUserId();
+
+      await withTransaction(async (connection) => {
+        const already = await rolePermissionRepo.exists(
+          numRoleId,
+          numPermissionId,
+          connection
+        );
+        if (already) {
+          throw new ConflictError('Permission already granted to this role');
+        }
+
+        const granted = await rolePermissionRepo.grant(
+          numRoleId,
+          numPermissionId,
+          connection
+        );
+        if (!granted) {
+          throw new Error('Failed to grant permission');
+        }
+
+        await auditRepo.log(
+          {
+            action: 'grant',
+            entityType: 'role_permission',
+            entityId: numRoleId,
+            beforeData: null,
+            afterData: {
+              roleId: numRoleId,
+              permissionId: numPermissionId,
+              permissionSlug: permission.slug,
+            },
+            actorUserId,
+            actorAdminId: callerAdminId,
+            requestId,
+          },
+          connection
+        );
+      });
+
+      const permissions = await rolePermissionRepo.findByRoleId(numRoleId);
+      return { role, permissions };
+    },
+
+    /**
+     * Revoke a permission from a role.
+     */
+    async revokePermissionFromRole(roleId, permissionId, actor = {}) {
+      const numRoleId = normalizePositiveId(roleId);
+      if (numRoleId === null) {
+        throw new ValidationError('roleId must be a positive integer');
+      }
+      const numPermissionId = normalizePositiveId(permissionId);
+      if (numPermissionId === null) {
+        throw new ValidationError('permissionId must be a positive integer');
+      }
+
+      const role = await roleRepo.findById(numRoleId);
+      if (!role) {
+        throw new NotFoundError('Role not found');
+      }
+
+      // System-role protection — durable security event.
+      if (Boolean(role.is_system_role)) {
+        try {
+          await securityRepo.logEvent({
+            userId: actor.userId !== undefined ? actor.userId : getUserId(),
+            eventType: 'role.system_role_tamper_attempt',
+            severity: 'high',
+            isSuccess: false,
+            requestId: getRequestId(),
+            metadata: {
+              roleId: numRoleId,
+              roleSlug: role.slug,
+              permissionId: numPermissionId,
+              operation: 'revoke',
+            },
+          });
+        } catch (logError) {
+          logger.error(
+            { err: logError, roleId: numRoleId, permissionId: numPermissionId },
+            'Failed to log system-role tamper attempt'
+          );
+        }
+        throw new AuthorizationError('System role permissions cannot be modified');
+      }
+
+      const permission = await permissionRepo.findById(numPermissionId);
+      if (!permission) {
+        throw new NotFoundError('Permission not found');
+      }
+
+      const requestId = getRequestId();
+      const actorUserId = actor.userId !== undefined ? actor.userId : getUserId();
+      const actorAdminId = actor.adminId !== undefined ? actor.adminId : getAdminId();
+
+      await withTransaction(async (connection) => {
+        const removed = await rolePermissionRepo.revoke(
+          numRoleId,
+          numPermissionId,
+          connection
+        );
+        if (!removed) {
+          throw new NotFoundError('Permission is not assigned to this role');
+        }
+
+        await auditRepo.log(
+          {
+            action: 'revoke',
+            entityType: 'role_permission',
+            entityId: numRoleId,
+            beforeData: {
+              roleId: numRoleId,
+              permissionId: numPermissionId,
+              permissionSlug: permission.slug,
+            },
+            afterData: null,
+            actorUserId,
+            actorAdminId,
+            requestId,
+          },
+          connection
+        );
+      });
+
+      const permissions = await rolePermissionRepo.findByRoleId(numRoleId);
+      return { role, permissions };
+    },
+  };
+}
+
+// Default singleton instance.
+export default createRbacService();===== app/repositories/admin.repository.js =====
+/**
+ * app/repositories/admin.repository.js
+ * Admin identity data access – checks if a user is an active admin.
+ *
+ * This repository follows the project's existing factory/singleton pattern.
+ */
+
+import { getDbPool } from '../config/database.config.js';
+import { ADMIN_STATUS, USER_STATUS } from '../core/constants.js';
+
+export function createAdminRepository(pool = getDbPool()) {
+  return {
+    /**
+     * Find an active admin record for a given user ID.
+     * Returns the admin identity only if:
+     *   - user exists, is active, and not soft-deleted
+     *   - admin record exists, is active, and not soft-deleted
+     *
+     * @param {number} userId - The user ID to check.
+     * @returns {Promise<Object|null>} An object with { admin_id, user_id, admin_status } or null.
+     */
+    async findActiveAdminByUserId(userId) {
+      if (!Number.isInteger(userId) || userId <= 0) {
+        throw new Error('userId must be a positive integer');
+      }
+
+      const [rows] = await pool.query(
+        `SELECT
+          a.id AS admin_id,
+          a.user_id,
+          a.status AS admin_status
+        FROM admins a
+        INNER JOIN users u ON a.user_id = u.id
+        WHERE a.user_id = ?
+          AND a.deleted_at IS NULL
+          AND a.status = ?
+          AND u.deleted_at IS NULL
+          AND u.status = ?`,
+        [userId, ADMIN_STATUS.ACTIVE, USER_STATUS.ACTIVE]
+      );
+
+      return rows[0] || null;
+    },
+  };
+}
+
+// Default singleton instance using the default database pool.
+export default createAdminRepository();===== app/repositories/role.repository.js =====
+/**
+ * app/repositories/role.repository.js
+ * Role and permission data access.
+ *
+ * This repository follows the project's existing factory/singleton pattern.
+ */
+
+import { randomUUID } from 'node:crypto';
+import { getDbPool } from '../config/database.config.js';
+import { ADMIN_STATUS } from '../core/constants.js';
+
+// Standard projection used by read/return paths.
+const ROLE_COLUMNS = `
+  id,
+  uuid,
+  name,
+  slug,
+  description,
+  is_system_role,
+  created_at,
+  updated_at
+`;
+
+export function createRoleRepository(pool = getDbPool()) {
+  return {
+    /**
+     * Check if an admin has a given permission.
+     * Uses a single EXISTS query across all required tables.
+     *
+     * @param {number} adminId - The admin ID (from req.admin.admin_id).
+     * @param {string} permissionSlug - The canonical permission slug (already trimmed).
+     * @returns {Promise<boolean>} True if the admin has the permission, false otherwise.
+     */
+    async hasPermission(adminId, permissionSlug) {
+      // Validate inputs
+      if (!Number.isInteger(adminId) || adminId <= 0) {
+        throw new Error('adminId must be a positive integer');
+      }
+      if (typeof permissionSlug !== 'string' || permissionSlug.trim() === '') {
+        throw new Error('permissionSlug must be a non-empty string');
+      }
+
+      const [rows] = await pool.query(
+        `SELECT EXISTS (
+          SELECT 1
+          FROM admins a
+          JOIN admin_roles ar ON a.id = ar.admin_id
+          JOIN roles r ON ar.role_id = r.id
+          JOIN role_permissions rp ON r.id = rp.role_id
+          JOIN permissions p ON rp.permission_id = p.id
+          WHERE a.id = ?
+            AND a.deleted_at IS NULL
+            AND a.status = ?
+            AND r.deleted_at IS NULL
+            AND p.slug = ?
+        ) AS has_permission`,
+        [adminId, ADMIN_STATUS.ACTIVE, permissionSlug]
+      );
+
+      return Boolean(rows[0]?.has_permission);
+    },
+
+    /**
+     * List all non‑deleted roles.
+     *
+     * @returns {Promise<Array>} Array of role objects.
+     */
+    async findAll() {
+      const [rows] = await pool.query(
+        `SELECT ${ROLE_COLUMNS}
+        FROM roles
+        WHERE deleted_at IS NULL
+        ORDER BY id ASC`
+      );
+      return rows;
+    },
+
+    /**
+     * Get a single non‑deleted role by ID.
+     *
+     * @param {number} id - The role ID.
+     * @returns {Promise<Object|null>} Role object or null if not found.
+     */
+    async findById(id) {
+      if (!Number.isInteger(id) || id <= 0) {
+        throw new Error('id must be a positive integer');
+      }
+
+      const [rows] = await pool.query(
+        `SELECT ${ROLE_COLUMNS}
+        FROM roles
+        WHERE id = ?
+          AND deleted_at IS NULL
+        LIMIT 1`,
+        [id]
+      );
+
+      return rows[0] || null;
+    },
+
+    /**
+     * Create a new non‑system role.
+     * UUID is generated server‑side. is_system_role is always forced to 0.
+     *
+     * @param {Object} data - { name, slug, description }
+     * @param {import('mysql2/promise').Connection} [connection] - Optional transaction connection.
+     * @returns {Promise<Object|null>} Created role record, or null on failure.
+     */
+    async create({ name, slug, description }, connection = pool) {
+      if (typeof name !== 'string' || name.trim() === '') {
+        throw new Error('name must be a non-empty string');
+      }
+      if (typeof slug !== 'string' || slug.trim() === '') {
+        throw new Error('slug must be a non-empty string');
+      }
+
+      const cleanName = name.trim();
+      const cleanSlug = slug.trim();
+      const cleanDescription = (description === undefined || description === null)
+        ? null
+        : (typeof description === 'string' ? description.trim() : null);
+
+      const uuid = randomUUID();
+
+      const [result] = await connection.query(
+        `INSERT INTO roles (uuid, name, slug, description, is_system_role)
+         VALUES (?, ?, ?, ?, 0)`,
+        [uuid, cleanName, cleanSlug, cleanDescription]
+      );
+
+      if (!result || !result.insertId) {
+        return null;
+      }
+
+      const [rows] = await connection.query(
+        `SELECT ${ROLE_COLUMNS}
+        FROM roles
+        WHERE id = ?
+        LIMIT 1`,
+        [result.insertId]
+      );
+
+      return rows[0] || null;
+    },
+
+    /**
+     * Update an existing role's mutable fields (name, slug, description).
+     * Never updates id, uuid, is_system_role, created_at, updated_at, deleted_at.
+     *
+     * @param {number} id - Role ID.
+     * @param {Object} patch - { name?, slug?, description? }
+     * @param {import('mysql2/promise').Connection} [connection] - Optional transaction connection.
+     * @returns {Promise<Object|null>} Updated role record, or null if not found / soft‑deleted.
+     */
+    async update(id, patch, connection = pool) {
+      if (!Number.isInteger(id) || id <= 0) {
+        throw new Error('id must be a positive integer');
+      }
+      if (!patch || typeof patch !== 'object') {
+        throw new Error('patch must be an object');
+      }
+
+      const fields = [];
+      const params = [];
+
+      // Only these three fields are allowed to be updated. Column names are
+      // hardcoded constants — never derived from caller input.
+      if (patch.name !== undefined) {
+        fields.push('name = ?');
+        params.push(patch.name);
+      }
+      if (patch.slug !== undefined) {
+        fields.push('slug = ?');
+        params.push(patch.slug);
+      }
+      if (patch.description !== undefined) {
+        fields.push('description = ?');
+        params.push(patch.description);
+      }
+
+      if (fields.length === 0) {
+        // Nothing to update – return the current record unchanged.
+        const [rows] = await connection.query(
+          `SELECT ${ROLE_COLUMNS}
+          FROM roles
+          WHERE id = ?
+            AND deleted_at IS NULL
+          LIMIT 1`,
+          [id]
+        );
+        return rows[0] || null;
+      }
+
+      params.push(id);
+      await connection.query(
+        `UPDATE roles
+         SET ${fields.join(', ')}
+         WHERE id = ?
+           AND deleted_at IS NULL`,
+        params
+      );
+
+      const [rows] = await connection.query(
+        `SELECT ${ROLE_COLUMNS}
+        FROM roles
+        WHERE id = ?
+          AND deleted_at IS NULL
+        LIMIT 1`,
+        [id]
+      );
+
+      return rows[0] || null;
+    },
+
+    /**
+     * Soft‑delete a role by setting deleted_at = NOW().
+     * Never physically deletes the row.
+     *
+     * @param {number} id - Role ID.
+     * @param {import('mysql2/promise').Connection} [connection] - Optional transaction connection.
+     * @returns {Promise<boolean>} True if a row was updated, false otherwise.
+     */
+    async delete(id, connection = pool) {
+      if (!Number.isInteger(id) || id <= 0) {
+        throw new Error('id must be a positive integer');
+      }
+
+      const [result] = await connection.query(
+        `UPDATE roles
+         SET deleted_at = NOW()
+         WHERE id = ?
+           AND deleted_at IS NULL`,
+        [id]
+      );
+
+      return Boolean(result && result.affectedRows > 0);
+    },
+  };
+}
+
+// Default singleton instance using the default database pool.
+export default createRoleRepository();===== app/repositories/role-permission.repository.js =====
+/**
+ * app/repositories/role-permission.repository.js
+ * Role ↔ Permission junction data access.
+ *
+ * Follows the project's factory/singleton repository pattern.
+ * Writes accept an optional connection so they participate in the
+ * caller's transaction (see app/core/transactions.js).
+ */
+
+import { getDbPool } from '../config/database.config.js';
+
+export function createRolePermissionRepository(pool = getDbPool()) {
+  return {
+    /**
+     * List permissions currently assigned to a role.
+     *
+     * @param {number} roleId - Positive integer role ID.
+     * @returns {Promise<Array>} Permission rows ordered by id ASC.
+     */
+    async findByRoleId(roleId) {
+      if (!Number.isInteger(roleId) || roleId <= 0) {
+        throw new Error('roleId must be a positive integer');
+      }
+
+      const [rows] = await pool.query(
+        `SELECT
+           p.id,
+           p.uuid,
+           p.name,
+           p.slug,
+           p.description
+         FROM role_permissions rp
+         INNER JOIN permissions p ON p.id = rp.permission_id
+         WHERE rp.role_id = ?
+         ORDER BY p.id ASC`,
+        [roleId]
+      );
+
+      return rows;
+    },
+
+    /**
+     * Return true if a (role_id, permission_id) mapping exists.
+     *
+     * @param {number} roleId
+     * @param {number} permissionId
+     * @param {import('mysql2/promise').Connection} [connection]
+     * @returns {Promise<boolean>}
+     */
+    async exists(roleId, permissionId, connection = pool) {
+      if (!Number.isInteger(roleId) || roleId <= 0) {
+        throw new Error('roleId must be a positive integer');
+      }
+      if (!Number.isInteger(permissionId) || permissionId <= 0) {
+        throw new Error('permissionId must be a positive integer');
+      }
+
+      const [rows] = await connection.query(
+        'SELECT 1 FROM role_permissions WHERE role_id = ? AND permission_id = ? LIMIT 1',
+        [roleId, permissionId]
+      );
+
+      return rows.length > 0;
+    },
+
+    /**
+     * Insert a role ↔ permission mapping.
+     *
+     * @param {number} roleId
+     * @param {number} permissionId
+     * @param {import('mysql2/promise').Connection} [connection]
+     * @returns {Promise<boolean>} True if a row was inserted.
+     */
+    async grant(roleId, permissionId, connection = pool) {
+      if (!Number.isInteger(roleId) || roleId <= 0) {
+        throw new Error('roleId must be a positive integer');
+      }
+      if (!Number.isInteger(permissionId) || permissionId <= 0) {
+        throw new Error('permissionId must be a positive integer');
+      }
+
+      const [result] = await connection.query(
+        'INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)',
+        [roleId, permissionId]
+      );
+
+      return Boolean(result && result.affectedRows > 0);
+    },
+
+    /**
+     * Delete a role ↔ permission mapping.
+     *
+     * @param {number} roleId
+     * @param {number} permissionId
+     * @param {import('mysql2/promise').Connection} [connection]
+     * @returns {Promise<boolean>} True if a row was removed.
+     */
+    async revoke(roleId, permissionId, connection = pool) {
+      if (!Number.isInteger(roleId) || roleId <= 0) {
+        throw new Error('roleId must be a positive integer');
+      }
+      if (!Number.isInteger(permissionId) || permissionId <= 0) {
+        throw new Error('permissionId must be a positive integer');
+      }
+
+      const [result] = await connection.query(
+        'DELETE FROM role_permissions WHERE role_id = ? AND permission_id = ?',
+        [roleId, permissionId]
+      );
+
+      return Boolean(result && result.affectedRows > 0);
+    },
+  };
+}
+
+export default createRolePermissionRepository();===== Audit repositories =====
+--- app/repositories/audit.repository.js ---
+import { randomUUID } from 'node:crypto';
+import { getDbPool } from '../config/database.config.js';
+
+const DEFAULT_LIMIT = 10;
+const MAX_LIMIT = 100;
+
+function validatePositiveInteger(value, name) {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative integer`);
+  }
+  return value;
+}
+
+function validateLimit(limit) {
+  const val = validatePositiveInteger(limit, 'limit');
+  if (val > MAX_LIMIT) throw new Error(`limit cannot exceed ${MAX_LIMIT}`);
+  return val;
+}
+
+export function createAuditRepository(pool = getDbPool()) {
+  return {
+    async findRecent({ limit = DEFAULT_LIMIT, offset = 0 }) {
+      const safeLimit = validateLimit(limit);
+      const safeOffset = validatePositiveInteger(offset, 'offset');
+
+      const [rows] = await pool.query(
+        `SELECT
+          audit_logs.id,
+          audit_logs.action,
+          audit_logs.entity_type,
+          audit_logs.created_at,
+          COALESCE(u.username, au.username) AS actor_name
+        FROM audit_logs
+        LEFT JOIN users u ON audit_logs.actor_user_id = u.id
+        LEFT JOIN admins a ON audit_logs.actor_admin_id = a.id
+        LEFT JOIN users au ON a.user_id = au.id
+        ORDER BY audit_logs.created_at DESC, audit_logs.id DESC
+        LIMIT ? OFFSET ?`,
+        [safeLimit, safeOffset]
+      );
+      return rows;
+    },
+
+    /**
+     * Insert an audit log entry.
+     * Can be called inside a transaction by passing a connection.
+     *
+     * @param {Object} entry
+     * @param {string} entry.action - Short action code (e.g. 'create', 'update', 'delete').
+     * @param {string} entry.entityType - Entity type (e.g. 'role').
+     * @param {number|null} [entry.entityId]
+     * @param {Object|null} [entry.beforeData]
+     * @param {Object|null} [entry.afterData]
+     * @param {number|null} [entry.actorUserId]
+     * @param {number|null} [entry.actorAdminId]
+     * @param {string|null} [entry.requestId]
+     * @param {import('mysql2/promise').Connection} [connection]
+     * @returns {Promise<number|null>} Inserted audit log ID or null.
+     */
+    async log(entry, connection = pool) {
+      if (!entry || typeof entry !== 'object') {
+        throw new Error('audit entry must be an object');
+      }
+      const {
+        action,
+        entityType,
+        entityId = null,
+        beforeData = null,
+        afterData = null,
+        actorUserId = null,
+        actorAdminId = null,
+        requestId = null,
+      } = entry;
+
+      if (typeof action !== 'string' || action.trim() === '') {
+        throw new Error('action must be a non-empty string');
+      }
+      if (typeof entityType !== 'string' || entityType.trim() === '') {
+        throw new Error('entityType must be a non-empty string');
+      }
+
+      const uuid = randomUUID();
+
+      const [result] = await connection.query(
+        `INSERT INTO audit_logs
+          (uuid, actor_user_id, actor_admin_id, action, entity_type, entity_id,
+           before_data, after_data, request_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          uuid,
+          actorUserId,
+          actorAdminId,
+          action,
+          entityType,
+          entityId,
+          beforeData ? JSON.stringify(beforeData) : null,
+          afterData ? JSON.stringify(afterData) : null,
+          requestId,
+        ]
+      );
+
+      return result ? result.insertId : null;
+    },
+  };
+}
+
+export default createAuditRepository();===== Security repositories =====
+--- app/repositories/security.repository.js ---
+/**
+ * app/repositories/security.repository.js
+ * Security event logging – durable, independent of the caller's transaction.
+ *
+ * This repository follows the project's existing factory/singleton pattern.
+ */
+
+import { randomUUID } from 'node:crypto';
+import { getDbPool } from '../config/database.config.js';
+
+const VALID_SEVERITIES = new Set(['info', 'low', 'medium', 'high', 'critical']);
+
+export function createSecurityRepository(pool = getDbPool()) {
+  return {
+    /**
+     * Insert a security event.
+     *
+     * @param {Object} event
+     * @param {number|null} [event.userId]
+     * @param {string} event.eventType - Short event type identifier.
+     * @param {string} [event.severity='info'] - info|low|medium|high|critical
+     * @param {boolean} [event.isSuccess=true]
+     * @param {string|null} [event.requestId]
+     * @param {Object|null} [event.metadata]
+     * @param {import('mysql2/promise').Connection} [connection]
+     * @returns {Promise<number|null>} Inserted event ID or null.
+     */
+    async logEvent(event, connection = pool) {
+      if (!event || typeof event !== 'object') {
+        throw new Error('security event must be an object');
+      }
+      const {
+        userId = null,
+        eventType,
+        severity = 'info',
+        isSuccess = true,
+        requestId = null,
+        metadata = null,
+      } = event;
+
+      if (typeof eventType !== 'string' || eventType.trim() === '') {
+        throw new Error('eventType must be a non-empty string');
+      }
+      if (!VALID_SEVERITIES.has(severity)) {
+        throw new Error(
+          `severity must be one of: ${Array.from(VALID_SEVERITIES).join(', ')}`
+        );
+      }
+
+      const uuid = randomUUID();
+
+      const [result] = await connection.query(
+        `INSERT INTO security_events
+          (uuid, user_id, event_type, severity, is_success, request_id, metadata)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          uuid,
+          userId,
+          eventType,
+          severity,
+          isSuccess ? 1 : 0,
+          requestId,
+          metadata ? JSON.stringify(metadata) : null,
+        ]
+      );
+
+      return result ? result.insertId : null;
+    },
+  };
+}
+
+export default createSecurityRepository();===== app/services/auth/admin.service.js =====
+cat: app/services/auth/admin.service.js: No such file or directory
+===== grep admin controllers/routes =====
+app/controllers/admin/dashboard.controller.js:2: * app/controllers/admin/dashboard.controller.js
+app/controllers/admin/dashboard.controller.js:3: * Admin Dashboard Controller for Tesnow
+app/controllers/admin/dashboard.controller.js:4: * Provides admin dashboard overview with statistics and recent activity
+app/controllers/admin/dashboard.controller.js:6: * @module controllers/admin/dashboard.controller
+app/controllers/admin/dashboard.controller.js:100:    // HANDLER: GET /admin/dashboard - Admin dashboard
+app/controllers/admin/dashboard.controller.js:104:     * Render admin dashboard
+app/controllers/admin/dashboard.controller.js:299:                    description: 'Admin dashboard overview',
+app/controllers/admin/dashboard.controller.js:300:                    canonicalUrl: `${seoConfig.siteUrl || ''}/admin/dashboard`,
+app/controllers/admin/dashboard.controller.js:313:            res.status(HTTP_STATUS.OK).render('admin/dashboard/index', viewModel);
+app/controllers/admin/permission.controller.js:2: * app/controllers/admin/permission.controller.js
+app/controllers/admin/permission.controller.js:12: * GET /admin/permissions
+app/controllers/admin/role.controller.js:2: * app/controllers/admin/role.controller.js
+app/controllers/admin/role.controller.js:84:    adminId: req.admin && req.admin.admin_id !== undefined ? req.admin.admin_id : null,
+app/controllers/admin/role.controller.js:93: * GET /admin/roles
+app/controllers/admin/role.controller.js:108: * GET /admin/roles/:id
+app/controllers/admin/role.controller.js:126: * POST /admin/roles
+app/controllers/admin/role.controller.js:145: * PATCH /admin/roles/:id
+app/controllers/admin/role.controller.js:168: * DELETE /admin/roles/:id
+app/controllers/admin/role.controller.js:184: * GET /admin/roles/:id/permissions
+app/controllers/admin/role.controller.js:199: * POST /admin/roles/:id/permissions
+app/controllers/admin/role.controller.js:234: * DELETE /admin/roles/:id/permissions/:permissionId
+app/routes/index.routes.js:15:import adminRouter from './admin.routes.js';
+app/routes/index.routes.js:51:// 6. ADMIN ROUTES
+app/routes/index.routes.js:54:router.use('/admin', adminRouter);
+app/routes/admin.routes.js:2: * app/routes/admin.routes.js
+app/routes/admin.routes.js:3: * Admin route composition layer for Tesnow
+app/routes/admin.routes.js:4: * Protected administrative routes for content, user, and system management
+app/routes/admin.routes.js:6: * @module routes/admin.routes
+app/routes/admin.routes.js:13:import authorizeAdmin from '../middleware/authorization.js';
+app/routes/admin.routes.js:24:} from '../controllers/admin/role.controller.js';
+app/routes/admin.routes.js:25:import { listPermissions } from '../controllers/admin/permission.controller.js';
+app/routes/admin.routes.js:29:// Protect all admin routes with authentication + authorization
+app/routes/admin.routes.js:31:router.use(authorizeAdmin);
+app/routes/admin.routes.js:39: * Admin dashboard overview
+app/routes/admin.routes.js:40: * Future: authentication, admin authorization, controller
+app/routes/admin.routes.js:46:    sendError(res, new Error('Admin dashboard not yet implemented'), {
+app/routes/admin.routes.js:48:      message: 'Admin dashboard is under development',
+app/routes/admin.routes.js:60: * Future: authentication, admin authorization, controller
+app/routes/admin.routes.js:66:    sendError(res, new Error('Get admin posts list not yet implemented'), {
+app/routes/admin.routes.js:68:      message: 'Admin posts list endpoint is under development',
+app/routes/admin.routes.js:76: * Future: authentication, admin authorization, controller
+app/routes/admin.routes.js:91: * Get a single post (admin view)
+app/routes/admin.routes.js:92: * Future: authentication, admin authorization, controller
+app/routes/admin.routes.js:98:    sendError(res, new Error('Get admin post not yet implemented'), {
+app/routes/admin.routes.js:100:      message: 'Admin post endpoint is under development',
+app/routes/admin.routes.js:108: * Future: authentication, admin authorization, controller
+app/routes/admin.routes.js:124: * Future: authentication, admin authorization, controller
+app/routes/admin.routes.js:140: * Future: authentication, admin authorization, controller
+app/routes/admin.routes.js:156: * Future: authentication, admin authorization, validation, CSRF, controller
+app/routes/admin.routes.js:172: * Future: authentication, admin authorization, validation, CSRF, controller
+app/routes/admin.routes.js:188: * Future: authentication, admin authorization, CSRF, controller
+app/routes/admin.routes.js:204: * Future: authentication, admin authorization, CSRF, controller
+app/routes/admin.routes.js:220: * Future: authentication, admin authorization, CSRF, controller
+app/routes/admin.routes.js:236: * Future: authentication, admin authorization, CSRF, controller
+app/routes/admin.routes.js:252: * Future: authentication, admin authorization, validation, CSRF, controller
+app/routes/admin.routes.js:268: * Future: authentication, admin authorization, CSRF, controller
+app/routes/admin.routes.js:284: * Future: authentication, admin authorization, CSRF, controller
+app/routes/admin.routes.js:304: * Future: authentication, admin authorization, controller
+app/routes/admin.routes.js:320: * Future: authentication, admin authorization, controller
+app/routes/admin.routes.js:336: * Future: authentication, admin authorization, controller
+app/routes/admin.routes.js:352: * Future: authentication, admin authorization, validation, CSRF, controller
+app/routes/admin.routes.js:368: * Future: authentication, admin authorization, validation, CSRF, controller
+app/routes/admin.routes.js:384: * Future: authentication, admin authorization, CSRF, controller
+app/routes/admin.routes.js:404: * Future: authentication, admin authorization, controller
+app/routes/admin.routes.js:420: * Future: authentication, admin authorization, controller
+app/routes/admin.routes.js:436: * Future: authentication, admin authorization, controller
+app/routes/admin.routes.js:452: * Future: authentication, admin authorization, validation, CSRF, controller
+app/routes/admin.routes.js:468: * Future: authentication, admin authorization, validation, CSRF, controller
+app/routes/admin.routes.js:484: * Future: authentication, admin authorization, CSRF, controller
+app/routes/admin.routes.js:504: * Future: authentication, admin authorization, pagination, controller
+app/routes/admin.routes.js:520: * Future: authentication, admin authorization, controller
+app/routes/admin.routes.js:536: * Future: authentication, admin authorization, upload middleware, validation, controller
+app/routes/admin.routes.js:552: * Future: authentication, admin authorization, validation, CSRF, controller
+app/routes/admin.routes.js:568: * Future: authentication, admin authorization, CSRF, controller
+app/routes/admin.routes.js:588: * Future: authentication, admin authorization, pagination, controller
+app/routes/admin.routes.js:604: * Future: authentication, admin authorization, controller
+app/routes/admin.routes.js:620: * Future: authentication, admin authorization, CSRF, controller
+app/routes/admin.routes.js:636: * Future: authentication, admin authorization, CSRF, controller
+app/routes/admin.routes.js:652: * Future: authentication, admin authorization, CSRF, controller
+app/routes/admin.routes.js:668: * Future: authentication, admin authorization, CSRF, controller
+app/routes/admin.routes.js:688: * Future: authentication, admin authorization, pagination, controller
+app/routes/admin.routes.js:704: * Future: authentication, admin authorization, controller
+app/routes/admin.routes.js:720: * Future: authentication, admin authorization, controller
+app/routes/admin.routes.js:736: * Future: authentication, admin authorization, validation, CSRF, controller
+app/routes/admin.routes.js:752: * Future: authentication, admin authorization, CSRF, controller
+app/routes/admin.routes.js:768: * Future: authentication, admin authorization, CSRF, controller
+app/routes/admin.routes.js:784: * Future: authentication, admin authorization, CSRF, controller
+app/routes/admin.routes.js:800: * Future: authentication, admin authorization, CSRF, controller
+app/routes/admin.routes.js:914: * Future: authentication, admin authorization, pagination, controller
+app/routes/admin.routes.js:930: * Future: authentication, admin authorization, controller
+app/routes/admin.routes.js:946: * Future: authentication, admin authorization, CSRF, controller
+app/routes/admin.routes.js:962: * Future: authentication, admin authorization, CSRF, controller
+app/routes/admin.routes.js:976:// NOTIFICATION ROUTES (Admin)
+app/routes/admin.routes.js:981: * List admin/system notifications
+app/routes/admin.routes.js:982: * Future: authentication, admin authorization, pagination, controller
+app/routes/admin.routes.js:988:    sendError(res, new Error('Get admin notifications not yet implemented'), {
+app/routes/admin.routes.js:990:      message: 'Admin notifications endpoint is under development',
+app/routes/admin.routes.js:998: * Future: authentication, admin authorization, validation, CSRF, controller
+app/routes/admin.routes.js:1014: * Future: authentication, admin authorization, validation, CSRF, controller
+app/routes/admin.routes.js:1030: * Future: authentication, admin authorization, CSRF, controller

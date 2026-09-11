@@ -1,0 +1,2231 @@
+# PHASE 3B-6 — FINAL CONCURRENCY + SECURITY CONSTANT CORRECTION
+
+## 1. THE RACE THAT THE PREVIOUS VERSION FAILED TO PREVENT
+
+Two distinct races remained open in the previously delivered code, both stemming from the same root cause: **using the transaction connection for reads does not lock anything.**
+
+**Race A — Caller permission revocation invalidates the operation-permission check.**
+
+```
+T1 (assignRoleToAdmin):
+  BEGIN
+  SELECT EXISTS(...) caller has admin.role.assign  → TRUE   (plain read, no lock)
+                                                                ┌─────────────────────────┐
+                                                                │ T2 (rbac.service):      │
+                                                                │   BEGIN                 │
+                                                                │   DELETE FROM           │
+                                                                │     role_permissions    │
+                                                                │    WHERE role_id=X      │
+                                                                │      AND permission_id=Y│  ← revokes admin.role.assign from caller's role
+                                                                │   COMMIT                │
+                                                                └─────────────────────────┘
+  ...privilege-subset check...
+  INSERT INTO admin_roles ...     ← mutation proceeds with a stale authorization
+  COMMIT
+```
+
+The `SELECT EXISTS(...)` is a **consistent non-locking read** in InnoDB REPEATABLE READ. T2's DELETE is not blocked and its COMMIT is not ordered against T1's decision.
+
+**Race B — Concurrent role-permission grant invalidates the privilege-subset check.**
+
+```
+T1 (assignRoleToAdmin):
+  BEGIN
+  SELECT ... FROM role_permissions WHERE role_id=R  → [post.read]   (plain read)
+  caller.perms ⊇ {post.read}  → subset check passes
+                                                                ┌─────────────────────────┐
+                                                                │ T2 (rbac.service):      │
+                                                                │   BEGIN                 │
+                                                                │   INSERT INTO           │
+                                                                │     role_permissions    │
+                                                                │     (R, admin.delete)   │
+                                                                │   COMMIT                │
+                                                                └─────────────────────────┘
+  INSERT INTO admin_roles (target, R)  ← target now receives a role that
+  COMMIT                                grants admin.delete, which the
+                                        caller does not possess
+```
+
+The subset check `permissions(R) ⊆ permissions(C)` was made against a snapshot that T2 changed and committed before T1's mutation. The final configuration on disk is a privilege escalation.
+
+Both races are reproducible whenever two transactions overlap. Using the same connection for the read is orthogonal — the connection determines *which database session* performs the read, not *whether the read takes locks*.
+
+---
+
+## 2. CHOSEN LOCKING STRATEGY
+
+The strategy uses **explicit `FOR UPDATE` locking reads with next-key (range + gap) semantics** on precisely the rows that determine each decision, all inside the existing `withTransaction` boundary. No new authorization layer, no new transaction helper, no new framework.
+
+### What is locked, when, and in what order
+
+Every mutating operation in `admin.service.js` opens a transaction and immediately calls a single helper `lockAndVerifyCaller(...)` which performs the following, in this exact order:
+
+**Step 1 — Lock admin rows in ascending ID order.**
+`SELECT ... FROM admins INNER JOIN users ... WHERE a.id = ? FOR UPDATE` is issued for `min(callerId, targetId)` first, then for `max(callerId, targetId)` (target omitted for `createAdmin`).
+This locks the `admins` row, its `users` row, and (via the JOIN + `FOR UPDATE`) any rows scanned. Acquiring admin row locks in ascending ID order makes **mutual role-assignment operations deadlock-free**: T1 (caller=B, target=A) and T2 (caller=A, target=B) both demand A's admin row before B's.
+
+**Step 2 — Verify caller exists and is active** against the locked row: `admins.deleted_at IS NULL`, `admins.status = 'active'`, `users.status = 'active'`, `users.deleted_at IS NULL`.
+Because step 1 already holds X-locks on these rows, a concurrent `updateAdmin` (which itself locks the same rows via `findByIdForUpdate` before mutating) will block until T1 commits. The "caller is active" decision cannot go stale.
+
+**Step 3 — Lock the caller's authorization state.** Three sub-queries on the transaction connection, in fixed order:
+- `SELECT role_id FROM admin_roles WHERE admin_id = ? FOR UPDATE` — locks the caller's `admin_roles` rows (next-key locks on the PK prefix `admin_id`, which also blocks INSERT of new role grants for this admin until commit).
+- `SELECT id, slug, deleted_at FROM roles WHERE id IN (...) ORDER BY id FOR UPDATE` — locks the caller's `roles` rows in ascending ID order.
+- `SELECT rp.role_id, rp.permission_id, p.slug FROM role_permissions rp JOIN permissions p ON ... WHERE rp.role_id IN (...) ORDER BY rp.role_id, rp.permission_id FOR UPDATE` — locks the caller's `role_permissions` rows.
+
+This blocks **any** concurrent DELETE on the caller's `role_permissions` rows. Race A is closed: T2's `DELETE FROM role_permissions ...` must wait for T1's X-lock to release.
+
+**Step 4 — Operation-permission check against the locked state.** The helper returns a `Set` of permission slugs read from the now-locked rows; the service checks `set.has(requiredPermission)`. If the caller lost the permission in the interim, the check sees the fresh post-lock state (InnoDB `FOR UPDATE` reads the latest committed row version after acquiring the lock), and the transaction aborts before any mutation.
+
+**Step 5 (assign/revoke only) — Lock the target role and its `role_permissions` range.**
+- `SELECT ... FROM roles WHERE id = ? AND deleted_at IS NULL FOR UPDATE`.
+- `SELECT permission_id FROM role_permissions WHERE role_id = ? ORDER BY permission_id FOR UPDATE` — a range scan on the PK `(role_id, permission_id)`. InnoDB REPEATABLE READ takes **next-key locks**, which include gap locks that prevent **INSERT** of any new `(role_id = R, permission_id = *)` row until T1 commits. Race B is closed: T2's `INSERT INTO role_permissions (R, admin.delete)` blocks until T1 commits, at which point T1 has already used the pre-existing permission set.
+
+**Step 6 — Privilege-subset check** uses the caller's locked permission slug set (from step 3) and the target role's locked permission rows (from step 5). Both sides are now immutable for the duration of the transaction.
+
+**Step 7 — Mutation + audit** proceed inside the same transaction, so the audit entry, the `admin_roles` change, and the caller's authorization decision all commit atomically.
+
+### Why concurrent role-permission changes cannot invalidate the decisions
+
+- A concurrent `DELETE FROM role_permissions` on **any of the caller's `role_permissions` rows** blocks on the X-lock taken in step 3.
+- A concurrent `INSERT INTO role_permissions` for **the target role** blocks on the gap lock taken in step 5.
+- A concurrent `DELETE FROM role_permissions` for **the target role** also blocks on step 5's range lock.
+- A concurrent `INSERT/DELETE` on the caller's `admin_roles` rows blocks on step 3's `admin_roles` locks.
+- A concurrent `UPDATE roles SET deleted_at` for any of the caller's roles or the target role blocks on the corresponding `roles` row lock.
+- A concurrent `UPDATE admins SET status / deleted_at` on the caller's or target's admin row blocks on step 1.
+
+Because all the rows that any RBAC mutation path in this project touches are locked by step 1, step 3, or step 5, no committed change to those rows can occur between the decision and the commit of the mutation.
+
+### Why the strategy is compatible with InnoDB / MySQL / MariaDB
+
+- `SELECT ... FOR UPDATE` is the standard InnoDB locking read. It takes X-locks on matching rows.
+- Range scans under REPEATABLE READ take next-key locks (record + preceding gap), which is what prevents phantom inserts in step 5.
+- `ORDER BY` on the PK prefix in step 5 lets the optimizer use the index for the range scan without resorting; the lock footprint is the same as the equality predicate.
+- `IN (...)` predicates on `role_id`/`admin_id` produce per-value range scans, each taking next-key locks on its range, which is exactly the desired behavior.
+- Isolation is REPEATABLE READ by default in MariaDB 10.x / MySQL 8.x. The `withTransaction` helper does not override this unless an option is passed; the service does not pass one, so the default applies.
+
+### Why deadlock risk is minimized
+
+- The only two-way deadlock candidate is two admins mutually assigning roles (`T1: caller=B, target=A`, `T2: caller=A, target=B`). Sorting the admin ID locks in step 1 eliminates it: both transactions demand A's admin row before B's.
+- The RBAC service's own grant/revoke path acquires exactly one lock per transaction (the specific `role_permissions` row via INSERT/DELETE) and never holds a second lock. It cannot be a deadlock partner.
+- The lock order is fixed: `admin rows (sorted) → admin_roles → roles → role_permissions (caller) → target roles row → target role_permissions`. Every mutating path in `admin.service.js` uses the same order, so no two service transactions can deadlock.
+- Unlock happens implicitly at `COMMIT`/`ROLLBACK` in `withTransaction`; no connection is held beyond the transaction boundary.
+
+### Compatibility with Phase 3B-5C
+
+Phase 3B-5C's `grantPermissionToRole` / `revokePermissionFromRole` do the following inside their own transaction:
+- `roleRepo.findById` (plain read),
+- `permissionRepo.findById` (plain read),
+- `rolePermissionRepo.exists` / `grant` / `revoke` (single INSERT/DELETE → one X-lock on one `role_permissions` row),
+- `auditRepo.log` (INSERT into `audit_logs`).
+
+They acquire at most one lock on `role_permissions` before committing. `admin.service.js` acquires its `role_permissions` locks in a strict prefix (caller's, then target role's) and never touches a lock the RBAC service holds at a point the RBAC service still needs another lock. So a Phase 3B-5C grant/revoke and a Phase 3B-6 mutation serialize cleanly with no deadlock and no lost update. **Phase 3B-5C behavior is not modified.**
+
+---
+
+## 3. FILES THAT MUST CHANGE
+
+1. `app/repositories/admin.repository.js` — `findByIdForUpdate` returns the user's status alongside the admin's status so callers can authoritatively check "caller active" from a single locked row.
+2. `app/repositories/role.repository.js` — new method `lockCallerAuthStateForUpdate`.
+3. `app/repositories/role-permission.repository.js` — new method `lockByRoleId`.
+4. `app/services/auth/admin.service.js` — mutating methods rewritten to lock, then decide, then mutate.
+
+## 4. FILES THAT REMAIN UNTOUCHED
+
+- `app/core/constants.js` (the 5 `SECURITY_EVENT.*` admin constants already exist in the delivered file — see §8)
+- `app/routes/admin.routes.js`
+- `app/controllers/admin/admin-account.controller.js`
+- `app/validators/admin.validator.js`
+- `app/middleware/*`
+- `app/services/auth/rbac.service.js`
+- `app/services/auth/password.service.js`
+- `app/core/transactions.js`
+- `app/core/request-context.js`
+- `app/core/response.js`
+- `app/core/errors.js`
+- `app/repositories/user.repository.js`
+- `app/repositories/audit.repository.js`
+- `app/repositories/security.repository.js`
+- `app/repositories/permission.repository.js`
+- `database/seeders/*`
+- `database/migrations/*`
+
+---
+
+## 5. COMPLETE FINAL CONTENTS OF CHANGED FILES
+
+### FILE 1 — MODIFY: `app/repositories/admin.repository.js`
+
+Only `findByIdForUpdate` changes: `u.status AS user_status` is added to the SELECT and the filter `u.deleted_at IS NULL` is kept.
+
+```js
+/**
+ * app/repositories/admin.repository.js
+ * Admin identity data access – checks if a user is an active admin, plus
+ * Phase 3B-6 account lifecycle / role assignment support.
+ *
+ * This repository follows the project's existing factory/singleton pattern.
+ */
+
+import { randomUUID } from 'node:crypto';
+import { getDbPool } from '../config/database.config.js';
+import { ADMIN_STATUS, USER_STATUS } from '../core/constants.js';
+
+export function createAdminRepository(pool = getDbPool()) {
+  return {
+    // ------------------------------------------------------------------------
+    // Existing Phase 3B-1 API — BEHAVIOR UNCHANGED
+    // ------------------------------------------------------------------------
+
+    async findActiveAdminByUserId(userId) {
+      if (!Number.isInteger(userId) || userId <= 0) {
+        throw new Error('userId must be a positive integer');
+      }
+
+      const [rows] = await pool.query(
+        `SELECT
+          a.id AS admin_id,
+          a.user_id,
+          a.status AS admin_status
+        FROM admins a
+        INNER JOIN users u ON a.user_id = u.id
+        WHERE a.user_id = ?
+          AND a.deleted_at IS NULL
+          AND a.status = ?
+          AND u.deleted_at IS NULL
+          AND u.status = ?`,
+        [userId, ADMIN_STATUS.ACTIVE, USER_STATUS.ACTIVE]
+      );
+
+      return rows[0] || null;
+    },
+
+    // ------------------------------------------------------------------------
+    // Phase 3B-6 — Admin creation
+    // ------------------------------------------------------------------------
+
+    async createAdmin({ userId }, connection = pool) {
+      if (!Number.isInteger(userId) || userId <= 0) {
+        throw new Error('userId must be a positive integer');
+      }
+
+      const adminUuid = randomUUID();
+
+      const [result] = await connection.query(
+        `INSERT INTO admins (user_id, admin_uuid, status) VALUES (?, ?, ?)`,
+        [userId, adminUuid, ADMIN_STATUS.ACTIVE]
+      );
+
+      if (!result || !result.insertId) {
+        throw new Error('Failed to create admin');
+      }
+
+      return { adminId: result.insertId, adminUuid };
+    },
+
+    // ------------------------------------------------------------------------
+    // Phase 3B-6 — Read
+    // ------------------------------------------------------------------------
+
+    async findByIdWithUser(id, connection = pool) {
+      if (!Number.isInteger(id) || id <= 0) {
+        throw new Error('id must be a positive integer');
+      }
+      const [rows] = await connection.query(
+        `SELECT
+          a.id AS admin_id,
+          a.admin_uuid,
+          a.status AS admin_status,
+          a.two_factor_enabled,
+          a.last_admin_login_at,
+          a.created_at AS admin_created_at,
+          a.updated_at AS admin_updated_at,
+          u.id AS user_id,
+          u.uuid AS user_uuid,
+          u.username,
+          u.email,
+          u.first_name,
+          u.last_name,
+          u.avatar_url,
+          u.status AS user_status,
+          u.email_verified_at,
+          u.created_at AS user_created_at
+        FROM admins a
+        INNER JOIN users u ON a.user_id = u.id
+        WHERE a.id = ?
+          AND a.deleted_at IS NULL
+          AND u.deleted_at IS NULL
+        LIMIT 1`,
+        [id]
+      );
+      return rows[0] || null;
+    },
+
+    async listAdmins({ limit, offset }, connection = pool) {
+      if (!Number.isInteger(limit) || limit <= 0) {
+        throw new Error('limit must be a positive integer');
+      }
+      if (!Number.isInteger(offset) || offset < 0) {
+        throw new Error('offset must be a non-negative integer');
+      }
+      const [rows] = await connection.query(
+        `SELECT
+          a.id AS admin_id,
+          a.admin_uuid,
+          a.status AS admin_status,
+          a.two_factor_enabled,
+          a.last_admin_login_at,
+          a.created_at AS admin_created_at,
+          a.updated_at AS admin_updated_at,
+          u.id AS user_id,
+          u.uuid AS user_uuid,
+          u.username,
+          u.email,
+          u.first_name,
+          u.last_name,
+          u.avatar_url,
+          u.status AS user_status,
+          u.email_verified_at,
+          u.created_at AS user_created_at
+        FROM admins a
+        INNER JOIN users u ON a.user_id = u.id
+        WHERE a.deleted_at IS NULL
+          AND u.deleted_at IS NULL
+        ORDER BY a.id ASC
+        LIMIT ? OFFSET ?`,
+        [limit, offset]
+      );
+      return rows;
+    },
+
+    async countAdmins(connection = pool) {
+      const [rows] = await connection.query(
+        `SELECT COUNT(*) AS count
+         FROM admins a
+         INNER JOIN users u ON a.user_id = u.id
+         WHERE a.deleted_at IS NULL
+           AND u.deleted_at IS NULL`
+      );
+      return Number(rows[0].count);
+    },
+
+    /**
+     * Lock an admin row (and its joined user row) inside a transaction.
+     * Returns { id, user_id, status, deleted_at, user_status } or null.
+     *
+     * If the joined user row is soft-deleted, returns null so operational
+     * callers treat the admin as not-found.
+     *
+     * MUST be called with a connection inside an active transaction.
+     * The FOR UPDATE acquires exclusive locks on the admin and user rows.
+     */
+    async findByIdForUpdate(id, connection) {
+      if (!Number.isInteger(id) || id <= 0) {
+        throw new Error('id must be a positive integer');
+      }
+      const [rows] = await connection.query(
+        `SELECT
+           a.id,
+           a.user_id,
+           a.status,
+           a.deleted_at,
+           u.status AS user_status
+         FROM admins a
+         INNER JOIN users u ON a.user_id = u.id
+         WHERE a.id = ?
+           AND u.deleted_at IS NULL
+         LIMIT 1
+         FOR UPDATE`,
+        [id]
+      );
+      return rows[0] || null;
+    },
+
+    async isActiveAdmin(adminId, connection = pool) {
+      if (!Number.isInteger(adminId) || adminId <= 0) {
+        throw new Error('adminId must be a positive integer');
+      }
+      const [rows] = await connection.query(
+        `SELECT 1
+         FROM admins a
+         INNER JOIN users u ON a.user_id = u.id
+         WHERE a.id = ?
+           AND a.deleted_at IS NULL
+           AND a.status = ?
+           AND u.deleted_at IS NULL
+           AND u.status = ?
+         LIMIT 1`,
+        [adminId, ADMIN_STATUS.ACTIVE, USER_STATUS.ACTIVE]
+      );
+      return rows.length > 0;
+    },
+
+    // ------------------------------------------------------------------------
+    // Phase 3B-6 — Update
+    // ------------------------------------------------------------------------
+
+    async updateUserFields(
+      userId,
+      { username, firstName, lastName } = {},
+      connection = pool
+    ) {
+      if (!Number.isInteger(userId) || userId <= 0) {
+        throw new Error('userId must be a positive integer');
+      }
+
+      const fields = [];
+      const params = [];
+
+      if (username !== undefined) {
+        fields.push('username = ?');
+        params.push(username);
+      }
+      if (firstName !== undefined) {
+        fields.push('first_name = ?');
+        params.push(firstName);
+      }
+      if (lastName !== undefined) {
+        fields.push('last_name = ?');
+        params.push(lastName);
+      }
+
+      if (fields.length === 0) return;
+
+      params.push(userId);
+      await connection.query(
+        `UPDATE users SET ${fields.join(', ')} WHERE id = ? AND deleted_at IS NULL`,
+        params
+      );
+    },
+
+    async updateAdminStatus(adminId, status, connection = pool) {
+      if (!Number.isInteger(adminId) || adminId <= 0) {
+        throw new Error('adminId must be a positive integer');
+      }
+      if (typeof status !== 'string' || status.trim() === '') {
+        throw new Error('status must be a non-empty string');
+      }
+      await connection.query(
+        `UPDATE admins
+         SET status = ?
+         WHERE id = ? AND deleted_at IS NULL`,
+        [status, adminId]
+      );
+    },
+
+    // ------------------------------------------------------------------------
+    // Phase 3B-6 — Soft delete
+    // ------------------------------------------------------------------------
+
+    async softDeleteAdmin(adminId, connection = pool) {
+      if (!Number.isInteger(adminId) || adminId <= 0) {
+        throw new Error('adminId must be a positive integer');
+      }
+      const [result] = await connection.query(
+        `UPDATE admins
+         SET deleted_at = NOW(), status = ?
+         WHERE id = ? AND deleted_at IS NULL`,
+        [ADMIN_STATUS.INACTIVE, adminId]
+      );
+      return Boolean(result && result.affectedRows > 0);
+    },
+
+    // ------------------------------------------------------------------------
+    // Phase 3B-6 — Role assignment support
+    // ------------------------------------------------------------------------
+
+    async listAdminRoles(adminId, connection = pool) {
+      if (!Number.isInteger(adminId) || adminId <= 0) {
+        throw new Error('adminId must be a positive integer');
+      }
+      const [rows] = await connection.query(
+        `SELECT
+           r.id AS role_id,
+           r.slug,
+           r.name,
+           r.is_system_role
+         FROM admin_roles ar
+         INNER JOIN roles r ON ar.role_id = r.id
+         WHERE ar.admin_id = ?
+           AND r.deleted_at IS NULL
+         ORDER BY r.id ASC`,
+        [adminId]
+      );
+      return rows;
+    },
+
+    async hasRole(adminId, roleId, connection = pool) {
+      if (!Number.isInteger(adminId) || adminId <= 0) {
+        throw new Error('adminId must be a positive integer');
+      }
+      if (!Number.isInteger(roleId) || roleId <= 0) {
+        throw new Error('roleId must be a positive integer');
+      }
+      const [rows] = await connection.query(
+        `SELECT 1 FROM admin_roles WHERE admin_id = ? AND role_id = ? LIMIT 1`,
+        [adminId, roleId]
+      );
+      return rows.length > 0;
+    },
+
+    async assignRole(adminId, roleId, connection = pool) {
+      if (!Number.isInteger(adminId) || adminId <= 0) {
+        throw new Error('adminId must be a positive integer');
+      }
+      if (!Number.isInteger(roleId) || roleId <= 0) {
+        throw new Error('roleId must be a positive integer');
+      }
+      const [result] = await connection.query(
+        `INSERT IGNORE INTO admin_roles (admin_id, role_id) VALUES (?, ?)`,
+        [adminId, roleId]
+      );
+      return Boolean(result && result.affectedRows > 0);
+    },
+
+    async revokeRole(adminId, roleId, connection = pool) {
+      if (!Number.isInteger(adminId) || adminId <= 0) {
+        throw new Error('adminId must be a positive integer');
+      }
+      if (!Number.isInteger(roleId) || roleId <= 0) {
+        throw new Error('roleId must be a positive integer');
+      }
+      const [result] = await connection.query(
+        `DELETE FROM admin_roles WHERE admin_id = ? AND role_id = ?`,
+        [adminId, roleId]
+      );
+      return Boolean(result && result.affectedRows > 0);
+    },
+
+    async countActiveAdminsWithRole(roleId, connection = pool) {
+      if (!Number.isInteger(roleId) || roleId <= 0) {
+        throw new Error('roleId must be a positive integer');
+      }
+      const [rows] = await connection.query(
+        `SELECT COUNT(*) AS count
+         FROM admins a
+         INNER JOIN admin_roles ar ON a.id = ar.admin_id
+         INNER JOIN users u ON a.user_id = u.id
+         WHERE ar.role_id = ?
+           AND a.status = ?
+           AND a.deleted_at IS NULL
+           AND u.deleted_at IS NULL`,
+        [roleId, ADMIN_STATUS.ACTIVE]
+      );
+      return Number(rows[0].count);
+    },
+  };
+}
+
+export default createAdminRepository();
+```
+
+---
+
+### FILE 2 — MODIFY: `app/repositories/role.repository.js`
+
+New method `lockCallerAuthStateForUpdate`. Everything else unchanged.
+
+```js
+/**
+ * app/repositories/role.repository.js
+ * Role and permission data access.
+ *
+ * This repository follows the project's existing factory/singleton pattern.
+ */
+
+import { randomUUID } from 'node:crypto';
+import { getDbPool } from '../config/database.config.js';
+import { ADMIN_STATUS } from '../core/constants.js';
+
+const ROLE_COLUMNS = `
+  id,
+  uuid,
+  name,
+  slug,
+  description,
+  is_system_role,
+  created_at,
+  updated_at
+`;
+
+export function createRoleRepository(pool = getDbPool()) {
+  return {
+    /**
+     * Check if an admin has a given permission.
+     * Non-locking read; used by the locked RBAC service path.
+     * Accepts an optional transaction connection for compatibility.
+     */
+    async hasPermission(adminId, permissionSlug, connection = pool) {
+      if (!Number.isInteger(adminId) || adminId <= 0) {
+        throw new Error('adminId must be a positive integer');
+      }
+      if (typeof permissionSlug !== 'string' || permissionSlug.trim() === '') {
+        throw new Error('permissionSlug must be a non-empty string');
+      }
+
+      const [rows] = await connection.query(
+        `SELECT EXISTS (
+          SELECT 1
+          FROM admins a
+          JOIN admin_roles ar ON a.id = ar.admin_id
+          JOIN roles r ON ar.role_id = r.id
+          JOIN role_permissions rp ON r.id = rp.role_id
+          JOIN permissions p ON rp.permission_id = p.id
+          WHERE a.id = ?
+            AND a.deleted_at IS NULL
+            AND a.status = ?
+            AND r.deleted_at IS NULL
+            AND p.slug = ?
+        ) AS has_permission`,
+        [adminId, ADMIN_STATUS.ACTIVE, permissionSlug]
+      );
+
+      return Boolean(rows[0]?.has_permission);
+    },
+
+    async findAll() {
+      const [rows] = await pool.query(
+        `SELECT ${ROLE_COLUMNS}
+        FROM roles
+        WHERE deleted_at IS NULL
+        ORDER BY id ASC`
+      );
+      return rows;
+    },
+
+    async findById(id, connection = pool) {
+      if (!Number.isInteger(id) || id <= 0) {
+        throw new Error('id must be a positive integer');
+      }
+      const [rows] = await connection.query(
+        `SELECT ${ROLE_COLUMNS}
+        FROM roles
+        WHERE id = ?
+          AND deleted_at IS NULL
+        LIMIT 1`,
+        [id]
+      );
+      return rows[0] || null;
+    },
+
+    async findByIdForUpdate(id, connection) {
+      if (!Number.isInteger(id) || id <= 0) {
+        throw new Error('id must be a positive integer');
+      }
+      const [rows] = await connection.query(
+        `SELECT ${ROLE_COLUMNS}
+        FROM roles
+        WHERE id = ?
+          AND deleted_at IS NULL
+        LIMIT 1
+        FOR UPDATE`,
+        [id]
+      );
+      return rows[0] || null;
+    },
+
+    async findBySlugForUpdate(slug, connection) {
+      if (typeof slug !== 'string' || slug.trim() === '') {
+        throw new Error('slug must be a non-empty string');
+      }
+      const [rows] = await connection.query(
+        `SELECT ${ROLE_COLUMNS}
+        FROM roles
+        WHERE slug = ?
+          AND deleted_at IS NULL
+        LIMIT 1
+        FOR UPDATE`,
+        [slug]
+      );
+      return rows[0] || null;
+    },
+
+    async getPermissionSlugsForAdmin(adminId, connection = pool) {
+      if (!Number.isInteger(adminId) || adminId <= 0) {
+        throw new Error('adminId must be a positive integer');
+      }
+      const [rows] = await connection.query(
+        `SELECT DISTINCT p.slug
+         FROM admins a
+         JOIN admin_roles ar ON a.id = ar.admin_id
+         JOIN roles r ON ar.role_id = r.id
+         JOIN role_permissions rp ON r.id = rp.role_id
+         JOIN permissions p ON rp.permission_id = p.id
+         WHERE a.id = ?
+           AND a.deleted_at IS NULL
+           AND a.status = ?
+           AND r.deleted_at IS NULL`,
+        [adminId, ADMIN_STATUS.ACTIVE]
+      );
+      return rows.map((r) => r.slug);
+    },
+
+    /**
+     * Lock the caller's authorization state inside the transaction and
+     * return the caller's effective role slugs and permission slugs.
+     *
+     * Lock order (fixed):
+     *   1. admin_roles rows for the caller (blocks concurrent role grant/revoke)
+     *   2. roles rows for those role_ids (blocks concurrent role soft-delete)
+     *   3. role_permissions rows for those role_ids (blocks concurrent
+     *      permission grant/revoke on the caller's roles)
+     *
+     * Uses FOR UPDATE (InnoDB next-key locks). Must be called with a
+     * connection inside an active transaction. The caller's admin row
+     * should already be locked by the caller (adminRepository.findByIdForUpdate).
+     *
+     * @returns {Promise<{ roleSlugs: Set<string>, permissionSlugs: Set<string> }>}
+     */
+    async lockCallerAuthStateForUpdate(callerAdminId, connection) {
+      if (!Number.isInteger(callerAdminId) || callerAdminId <= 0) {
+        throw new Error('callerAdminId must be a positive integer');
+      }
+
+      const empty = () => ({ roleSlugs: new Set(), permissionSlugs: new Set() });
+
+      // Step 1: lock admin_roles rows for the caller (PK prefix range lock).
+      const [adminRoleRows] = await connection.query(
+        `SELECT role_id FROM admin_roles WHERE admin_id = ? FOR UPDATE`,
+        [callerAdminId]
+      );
+
+      const roleIds = adminRoleRows.map((r) => r.role_id);
+      if (roleIds.length === 0) {
+        return empty();
+      }
+
+      // Step 2: lock the roles rows in ascending id order.
+      const rolePlaceholders = roleIds.map(() => '?').join(',');
+      const [roleRows] = await connection.query(
+        `SELECT id, slug, deleted_at
+         FROM roles
+         WHERE id IN (${rolePlaceholders})
+         ORDER BY id
+         FOR UPDATE`,
+        roleIds
+      );
+
+      const roleSlugs = new Set();
+      const activeRoleIds = [];
+      for (const r of roleRows) {
+        if (r.deleted_at === null) {
+          roleSlugs.add(r.slug);
+          activeRoleIds.push(r.id);
+        }
+      }
+
+      if (activeRoleIds.length === 0) {
+        return { roleSlugs, permissionSlugs: new Set() };
+      }
+
+      // Step 3: lock role_permissions rows for the caller's active roles.
+      const activePlaceholders = activeRoleIds.map(() => '?').join(',');
+      const [permRows] = await connection.query(
+        `SELECT rp.role_id, rp.permission_id, p.slug AS permission_slug
+         FROM role_permissions rp
+         INNER JOIN permissions p ON rp.permission_id = p.id
+         WHERE rp.role_id IN (${activePlaceholders})
+         ORDER BY rp.role_id, rp.permission_id
+         FOR UPDATE`,
+        activeRoleIds
+      );
+
+      const permissionSlugs = new Set();
+      for (const row of permRows) {
+        if (row.permission_slug) {
+          permissionSlugs.add(row.permission_slug);
+        }
+      }
+
+      return { roleSlugs, permissionSlugs };
+    },
+
+    async create({ name, slug, description }, connection = pool) {
+      if (typeof name !== 'string' || name.trim() === '') {
+        throw new Error('name must be a non-empty string');
+      }
+      if (typeof slug !== 'string' || slug.trim() === '') {
+        throw new Error('slug must be a non-empty string');
+      }
+
+      const cleanName = name.trim();
+      const cleanSlug = slug.trim();
+      const cleanDescription = (description === undefined || description === null)
+        ? null
+        : (typeof description === 'string' ? description.trim() : null);
+
+      const uuid = randomUUID();
+
+      const [result] = await connection.query(
+        `INSERT INTO roles (uuid, name, slug, description, is_system_role)
+         VALUES (?, ?, ?, ?, 0)`,
+        [uuid, cleanName, cleanSlug, cleanDescription]
+      );
+
+      if (!result || !result.insertId) {
+        return null;
+      }
+
+      const [rows] = await connection.query(
+        `SELECT ${ROLE_COLUMNS}
+        FROM roles
+        WHERE id = ?
+        LIMIT 1`,
+        [result.insertId]
+      );
+
+      return rows[0] || null;
+    },
+
+    async update(id, patch, connection = pool) {
+      if (!Number.isInteger(id) || id <= 0) {
+        throw new Error('id must be a positive integer');
+      }
+      if (!patch || typeof patch !== 'object') {
+        throw new Error('patch must be an object');
+      }
+
+      const fields = [];
+      const params = [];
+
+      if (patch.name !== undefined) {
+        fields.push('name = ?');
+        params.push(patch.name);
+      }
+      if (patch.slug !== undefined) {
+        fields.push('slug = ?');
+        params.push(patch.slug);
+      }
+      if (patch.description !== undefined) {
+        fields.push('description = ?');
+        params.push(patch.description);
+      }
+
+      if (fields.length === 0) {
+        const [rows] = await connection.query(
+          `SELECT ${ROLE_COLUMNS}
+          FROM roles
+          WHERE id = ?
+            AND deleted_at IS NULL
+          LIMIT 1`,
+          [id]
+        );
+        return rows[0] || null;
+      }
+
+      params.push(id);
+      await connection.query(
+        `UPDATE roles
+         SET ${fields.join(', ')}
+         WHERE id = ?
+           AND deleted_at IS NULL`,
+        params
+      );
+
+      const [rows] = await connection.query(
+        `SELECT ${ROLE_COLUMNS}
+        FROM roles
+        WHERE id = ?
+          AND deleted_at IS NULL
+        LIMIT 1`,
+        [id]
+      );
+
+      return rows[0] || null;
+    },
+
+    async delete(id, connection = pool) {
+      if (!Number.isInteger(id) || id <= 0) {
+        throw new Error('id must be a positive integer');
+      }
+
+      const [result] = await connection.query(
+        `UPDATE roles
+         SET deleted_at = NOW()
+         WHERE id = ?
+           AND deleted_at IS NULL`,
+        [id]
+      );
+
+      return Boolean(result && result.affectedRows > 0);
+    },
+  };
+}
+
+export default createRoleRepository();
+```
+
+---
+
+### FILE 3 — MODIFY: `app/repositories/role-permission.repository.js`
+
+New method `lockByRoleId`. Everything else unchanged.
+
+```js
+/**
+ * app/repositories/role-permission.repository.js
+ * Role ↔ Permission junction data access.
+ *
+ * Follows the project's factory/singleton repository pattern.
+ * Writes accept an optional connection so they participate in the
+ * caller's transaction (see app/core/transactions.js).
+ */
+
+import { getDbPool } from '../config/database.config.js';
+
+export function createRolePermissionRepository(pool = getDbPool()) {
+  return {
+    /**
+     * List permissions currently assigned to a role (non-locking read).
+     */
+    async findByRoleId(roleId, connection = pool) {
+      if (!Number.isInteger(roleId) || roleId <= 0) {
+        throw new Error('roleId must be a positive integer');
+      }
+
+      const [rows] = await connection.query(
+        `SELECT
+           p.id,
+           p.uuid,
+           p.name,
+           p.slug,
+           p.description
+         FROM role_permissions rp
+         INNER JOIN permissions p ON p.id = rp.permission_id
+         WHERE rp.role_id = ?
+         ORDER BY p.id ASC`,
+        [roleId]
+      );
+
+      return rows;
+    },
+
+    /**
+     * Lock the entire role_permissions range for a role inside the
+     * transaction, then return the joined permission rows.
+     *
+     * The locking query uses a range scan on the PK prefix `role_id`
+     * with FOR UPDATE. Under InnoDB REPEATABLE READ this acquires
+     * next-key locks (record + preceding gap), which blocks:
+     *   - concurrent DELETE of any existing (role_id = R, *) row
+     *   - concurrent INSERT of any new     (role_id = R, *) row
+     * until the transaction commits.
+     *
+     * Must be called with a connection inside an active transaction.
+     *
+     * @returns {Promise<Array<{ permission_id: number, slug: string }>>}
+     */
+    async lockByRoleId(roleId, connection) {
+      if (!Number.isInteger(roleId) || roleId <= 0) {
+        throw new Error('roleId must be a positive integer');
+      }
+
+      // Step 1: lock the role_permissions range (with gap locks).
+      await connection.query(
+        `SELECT permission_id
+         FROM role_permissions
+         WHERE role_id = ?
+         ORDER BY permission_id
+         FOR UPDATE`,
+        [roleId]
+      );
+
+      // Step 2: read the joined permission rows; state is now stable.
+      const [rows] = await connection.query(
+        `SELECT rp.permission_id, p.slug
+         FROM role_permissions rp
+         INNER JOIN permissions p ON rp.permission_id = p.id
+         WHERE rp.role_id = ?
+         ORDER BY rp.permission_id`,
+        [roleId]
+      );
+
+      return rows;
+    },
+
+    async exists(roleId, permissionId, connection = pool) {
+      if (!Number.isInteger(roleId) || roleId <= 0) {
+        throw new Error('roleId must be a positive integer');
+      }
+      if (!Number.isInteger(permissionId) || permissionId <= 0) {
+        throw new Error('permissionId must be a positive integer');
+      }
+
+      const [rows] = await connection.query(
+        'SELECT 1 FROM role_permissions WHERE role_id = ? AND permission_id = ? LIMIT 1',
+        [roleId, permissionId]
+      );
+
+      return rows.length > 0;
+    },
+
+    async grant(roleId, permissionId, connection = pool) {
+      if (!Number.isInteger(roleId) || roleId <= 0) {
+        throw new Error('roleId must be a positive integer');
+      }
+      if (!Number.isInteger(permissionId) || permissionId <= 0) {
+        throw new Error('permissionId must be a positive integer');
+      }
+
+      const [result] = await connection.query(
+        'INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)',
+        [roleId, permissionId]
+      );
+
+      return Boolean(result && result.affectedRows > 0);
+    },
+
+    async revoke(roleId, permissionId, connection = pool) {
+      if (!Number.isInteger(roleId) || roleId <= 0) {
+        throw new Error('roleId must be a positive integer');
+      }
+      if (!Number.isInteger(permissionId) || permissionId <= 0) {
+        throw new Error('permissionId must be a positive integer');
+      }
+
+      const [result] = await connection.query(
+        'DELETE FROM role_permissions WHERE role_id = ? AND permission_id = ?',
+        [roleId, permissionId]
+      );
+
+      return Boolean(result && result.affectedRows > 0);
+    },
+  };
+}
+
+export default createRolePermissionRepository();
+```
+
+---
+
+### FILE 4 — MODIFY: `app/services/auth/admin.service.js`
+
+Full final content. Only the concurrency-safe locking and stale-permission handling are new; all other behavior (DTOs, self-mutation guards, last-super-admin protection, system-role protection, idempotency, audit, durable security events) is preserved exactly.
+
+```js
+/**
+ * app/services/auth/admin.service.js
+ * Admin account lifecycle and admin ↔ role assignment business logic.
+ *
+ * Phase 3B-6. HTTP-agnostic. All SQL lives in repositories.
+ *
+ * Concurrency-safe design:
+ *   - Every mutating operation opens a transaction and immediately locks
+ *     the caller's admin row + user row, then the target admin row (if
+ *     any) in ascending ID order.
+ *   - The caller's authorization state (admin_roles, roles, role_permissions)
+ *     is locked FOR UPDATE before any permission decision is accepted.
+ *   - The operation-specific permission is checked against that locked state.
+ *   - For role assignment/revocation, the target role's role_permissions
+ *     range is locked (next-key locks with gap locks) before the
+ *     privilege-subset check, which prevents concurrent INSERT/DELETE
+ *     from invalidating the subset decision.
+ *   - All locks are released at COMMIT/ROLLBACK by the existing
+ *     withTransaction helper; no new transaction utility is introduced.
+ */
+
+import { createChildLogger } from '../../core/logger.js';
+import {
+  AuthorizationError,
+  NotFoundError,
+  ValidationError,
+} from '../../core/errors.js';
+import { withTransaction } from '../../core/transactions.js';
+import {
+  getRequestId,
+  getUserId,
+  getAdminId,
+} from '../../core/request-context.js';
+import {
+  ADMIN_STATUS,
+  USER_STATUS,
+  AUDIT_ACTION,
+  SECURITY_EVENT,
+  SECURITY_SEVERITY,
+  PAGINATION,
+} from '../../core/constants.js';
+import { hashPassword } from './password.service.js';
+
+import adminRepository from '../../repositories/admin.repository.js';
+import userRepository from '../../repositories/user.repository.js';
+import roleRepository from '../../repositories/role.repository.js';
+import rolePermissionRepository from '../../repositories/role-permission.repository.js';
+import auditRepository from '../../repositories/audit.repository.js';
+import securityRepository from '../../repositories/security.repository.js';
+
+const logger = createChildLogger({ module: 'admin-service' });
+
+const SUPER_ADMIN_SLUG = 'super_admin';
+const DEFAULT_LIMIT = PAGINATION.DEFAULT_PAGE_SIZE;
+const MAX_LIMIT = PAGINATION.MAX_PAGE_SIZE;
+const MAX_PAGE = Math.floor(Number.MAX_SAFE_INTEGER / MAX_LIMIT);
+
+const PERM_CREATE_ADMIN = 'admin.create';
+const PERM_UPDATE_ADMIN = 'admin.update';
+const PERM_DELETE_ADMIN = 'admin.delete';
+const PERM_ASSIGN_ROLE = 'admin.role.assign';
+const PERM_REVOKE_ROLE = 'admin.role.revoke';
+
+// ----------------------------------------------------------------------------
+// Internal helpers
+// ----------------------------------------------------------------------------
+
+function normalizePositiveId(rawId) {
+  let numId;
+  if (typeof rawId === 'string') {
+    if (!/^\d+$/.test(rawId)) return null;
+    numId = Number(rawId);
+  } else {
+    numId = rawId;
+  }
+  if (!Number.isSafeInteger(numId) || numId <= 0) return null;
+  return numId;
+}
+
+function safeClampPagination(page, limit) {
+  const p0 = Number.isSafeInteger(page) && page > 0 ? page : PAGINATION.DEFAULT_PAGE;
+  const l = Number.isSafeInteger(limit) && limit > 0
+    ? Math.min(limit, MAX_LIMIT)
+    : DEFAULT_LIMIT;
+  const p = Math.min(p0, MAX_PAGE);
+  const offset = (p - 1) * l;
+  if (!Number.isSafeInteger(offset) || offset < 0) {
+    return { page: PAGINATION.DEFAULT_PAGE, limit: l, offset: 0 };
+  }
+  return { page: p, limit: l, offset };
+}
+
+function toAdminDto(row) {
+  if (!row) return null;
+  return {
+    admin_id: row.admin_id,
+    admin_uuid: row.admin_uuid,
+    status: row.admin_status,
+    two_factor_enabled: Boolean(row.two_factor_enabled),
+    last_admin_login_at: row.last_admin_login_at,
+    created_at: row.admin_created_at,
+    updated_at: row.admin_updated_at,
+    user: {
+      id: row.user_id,
+      uuid: row.user_uuid,
+      username: row.username,
+      email: row.email,
+      first_name: row.first_name,
+      last_name: row.last_name,
+      avatar_url: row.avatar_url,
+      status: row.user_status,
+      email_verified_at: row.email_verified_at,
+      created_at: row.user_created_at,
+    },
+  };
+}
+
+function toAdminAuditSnapshot(row) {
+  if (!row) return null;
+  return {
+    admin_id: row.admin_id,
+    admin_uuid: row.admin_uuid,
+    status: row.admin_status,
+    user: {
+      id: row.user_id,
+      username: row.username,
+      email: row.email,
+      first_name: row.first_name,
+      last_name: row.last_name,
+      status: row.user_status,
+    },
+  };
+}
+
+function toRoleDto(row) {
+  return {
+    role_id: row.role_id,
+    slug: row.slug,
+    name: row.name,
+    is_system_role: Boolean(row.is_system_role),
+  };
+}
+
+async function logSecurityEventSafely(securityRepo, event) {
+  try {
+    await securityRepo.logEvent(event);
+  } catch (err) {
+    logger.error({ err, event }, 'Failed to write security event');
+  }
+}
+
+/**
+ * Lock the super_admin role row and, if the target admin currently holds
+ * that role, return true when proceeding would reduce the count of active
+ * super_admins to zero. Must be called with a connection inside an
+ * active transaction.
+ */
+async function wouldLockOutSuperAdmin(adminRepo, roleRepo, connection, targetAdminId) {
+  const superAdminRole = await roleRepo.findBySlugForUpdate(SUPER_ADMIN_SLUG, connection);
+  if (!superAdminRole) return false;
+
+  const targetHoldsRole = await adminRepo.hasRole(targetAdminId, superAdminRole.id, connection);
+  if (!targetHoldsRole) return false;
+
+  const count = await adminRepo.countActiveAdminsWithRole(superAdminRole.id, connection);
+  return count <= 1;
+}
+
+/**
+ * Lock and verify the caller's authoritative authorization state, and
+ * optionally lock the target admin row.
+ *
+ * Lock order (fixed, prevents mutual admin-row deadlocks):
+ *   1. admin row for min(callerId, targetId) [if target present]
+ *   2. admin row for max(callerId, targetId) [if target present]
+ *   3. caller's admin_roles, roles, role_permissions (FOR UPDATE)
+ *
+ * Throws AuthorizationError when the caller is not active or lacks the
+ * required permission. Sets err.code = 'STALE_PERMISSION_IN_TRANSACTION'
+ * for the permission-missing case so callers can emit a security event.
+ *
+ * @returns {Promise<{
+ *   callerRow: Object,
+ *   targetRow: Object|null,
+ *   roleSlugs: Set<string>,
+ *   permissionSlugs: Set<string>
+ * }>}
+ */
+async function lockAndVerifyCaller(
+  adminRepo,
+  roleRepo,
+  callerAdminId,
+  targetAdminId,
+  requiredPermission,
+  connection
+) {
+  // 1. Lock admin rows in ascending ID order.
+  const idsToLock = [callerAdminId];
+  if (
+    Number.isInteger(targetAdminId) &&
+    targetAdminId > 0 &&
+    targetAdminId !== callerAdminId
+  ) {
+    idsToLock.push(targetAdminId);
+  }
+  idsToLock.sort((a, b) => a - b);
+
+  const lockedAdmins = new Map();
+  for (const id of idsToLock) {
+    const row = await adminRepo.findByIdForUpdate(id, connection);
+    lockedAdmins.set(id, row || null);
+  }
+
+  // 2. Caller must exist and be active.
+  const callerRow = lockedAdmins.get(callerAdminId);
+  if (!callerRow) {
+    throw new AuthorizationError('Caller admin not found');
+  }
+  if (callerRow.deleted_at !== null) {
+    throw new AuthorizationError('Caller admin is not active');
+  }
+  if (callerRow.status !== ADMIN_STATUS.ACTIVE) {
+    throw new AuthorizationError('Caller admin is not active');
+  }
+  if (callerRow.user_status !== USER_STATUS.ACTIVE) {
+    throw new AuthorizationError('Caller admin is not active');
+  }
+
+  // 3. Lock caller's authorization state.
+  const authState = await roleRepo.lockCallerAuthStateForUpdate(callerAdminId, connection);
+
+  // 4. Authoritative operation-permission check.
+  if (!authState.permissionSlugs.has(requiredPermission)) {
+    const err = new AuthorizationError(
+      `Caller lacks required permission: ${requiredPermission}`
+    );
+    err.code = 'STALE_PERMISSION_IN_TRANSACTION';
+    err.requiredPermission = requiredPermission;
+    throw err;
+  }
+
+  const targetRow =
+    Number.isInteger(targetAdminId) && targetAdminId > 0
+      ? lockedAdmins.get(targetAdminId) || null
+      : null;
+
+  return {
+    callerRow,
+    targetRow,
+    roleSlugs: authState.roleSlugs,
+    permissionSlugs: authState.permissionSlugs,
+  };
+}
+
+// ----------------------------------------------------------------------------
+// Factory
+// ----------------------------------------------------------------------------
+
+export function createAdminService(
+  adminRepo = adminRepository,
+  userRepo = userRepository,
+  roleRepo = roleRepository,
+  rolePermissionRepo = rolePermissionRepository,
+  auditRepo = auditRepository,
+  securityRepo = securityRepository
+) {
+  return {
+    // ------------------------------------------------------------------------
+    // Read (non-mutating; no locking)
+    // ------------------------------------------------------------------------
+
+    async listAdmins({ page, limit } = {}) {
+      const { page: safePage, limit: safeLimit, offset } = safeClampPagination(page, limit);
+
+      const [rows, total] = await Promise.all([
+        adminRepo.listAdmins({ limit: safeLimit, offset }),
+        adminRepo.countAdmins(),
+      ]);
+
+      const data = rows.map(toAdminDto);
+      const totalPages = Math.ceil(total / safeLimit) || 0;
+
+      return {
+        data,
+        pagination: {
+          page: safePage,
+          limit: safeLimit,
+          total,
+          totalPages,
+          hasNext: safePage < totalPages,
+          hasPrevious: safePage > 1,
+        },
+      };
+    },
+
+    async getAdmin(id) {
+      const numId = normalizePositiveId(id);
+      if (numId === null) {
+        throw new NotFoundError('Admin not found');
+      }
+      const row = await adminRepo.findByIdWithUser(numId);
+      if (!row) {
+        throw new NotFoundError('Admin not found');
+      }
+      return toAdminDto(row);
+    },
+
+    async listAdminRoles(id) {
+      const numId = normalizePositiveId(id);
+      if (numId === null) {
+        throw new NotFoundError('Admin not found');
+      }
+      const existing = await adminRepo.findByIdWithUser(numId);
+      if (!existing) {
+        throw new NotFoundError('Admin not found');
+      }
+      const rows = await adminRepo.listAdminRoles(numId);
+      return rows.map(toRoleDto);
+    },
+
+    // ------------------------------------------------------------------------
+    // Create
+    // ------------------------------------------------------------------------
+
+    async createAdmin(input = {}, actor = {}) {
+      const {
+        username,
+        email,
+        password,
+        first_name: firstNameRaw,
+        last_name: lastNameRaw,
+        avatar_url: avatarUrlRaw,
+        roleIds: roleIdsRaw,
+      } = input;
+
+      if (typeof username !== 'string' || username.trim() === '') {
+        throw new ValidationError('username is required');
+      }
+      if (typeof email !== 'string' || email.trim() === '') {
+        throw new ValidationError('email is required');
+      }
+      if (typeof password !== 'string' || password.length === 0) {
+        throw new ValidationError('password is required');
+      }
+
+      const cleanUsername = username.trim().toLowerCase();
+      const cleanEmail = email.trim().toLowerCase();
+      const cleanFirstName = (firstNameRaw === undefined || firstNameRaw === null)
+        ? null : String(firstNameRaw).trim();
+      const cleanLastName = (lastNameRaw === undefined || lastNameRaw === null)
+        ? null : String(lastNameRaw).trim();
+      const cleanAvatarUrl = (avatarUrlRaw === undefined || avatarUrlRaw === null)
+        ? null : String(avatarUrlRaw).trim();
+
+      const normalizedRoleIds = [];
+      if (roleIdsRaw !== undefined) {
+        if (!Array.isArray(roleIdsRaw)) {
+          throw new ValidationError('roleIds must be an array');
+        }
+        const seen = new Set();
+        for (const rawId of roleIdsRaw) {
+          const nId = normalizePositiveId(rawId);
+          if (nId === null) {
+            throw new ValidationError('Each roleId must be a positive integer');
+          }
+          if (seen.has(nId)) {
+            throw new ValidationError('Duplicate roleIds are not allowed');
+          }
+          seen.add(nId);
+          normalizedRoleIds.push(nId);
+        }
+      }
+
+      const callerAdminIdRaw = actor.adminId !== undefined ? actor.adminId : getAdminId();
+      const callerAdminId = normalizePositiveId(callerAdminIdRaw);
+      if (callerAdminId === null) {
+        throw new AuthorizationError('Caller admin identity is required');
+      }
+      const actorUserId = actor.userId !== undefined ? actor.userId : getUserId();
+      const requestId = getRequestId();
+
+      // Hash password outside the transaction.
+      const passwordHash = await hashPassword(password);
+
+      let securityEvent = null;
+
+      try {
+        return await withTransaction(async (connection) => {
+          // Lock caller and verify caller active + admin.create permission.
+          let locked;
+          try {
+            locked = await lockAndVerifyCaller(
+              adminRepo,
+              roleRepo,
+              callerAdminId,
+              null,
+              PERM_CREATE_ADMIN,
+              connection
+            );
+          } catch (err) {
+            if (err.code === 'STALE_PERMISSION_IN_TRANSACTION') {
+              securityEvent = {
+                userId: actorUserId,
+                eventType: SECURITY_EVENT.ADMIN_PRIVILEGE_ESCALATION_ATTEMPT,
+                severity: SECURITY_SEVERITY.HIGH,
+                isSuccess: false,
+                requestId,
+                metadata: {
+                  actor_admin_id: callerAdminId,
+                  required_permission: PERM_CREATE_ADMIN,
+                  reason: 'stale_permission_in_transaction',
+                },
+              };
+            }
+            throw err;
+          }
+
+          // Validate every requested role and the privilege-subset invariant.
+          for (const roleId of normalizedRoleIds) {
+            const role = await roleRepo.findByIdForUpdate(roleId, connection);
+            if (!role) {
+              throw new NotFoundError(`Role ${roleId} not found`);
+            }
+
+            if (Boolean(role.is_system_role)) {
+              if (!locked.roleSlugs.has(SUPER_ADMIN_SLUG)) {
+                securityEvent = {
+                  userId: actorUserId,
+                  eventType: SECURITY_EVENT.ADMIN_PRIVILEGE_ESCALATION_ATTEMPT,
+                  severity: SECURITY_SEVERITY.CRITICAL,
+                  isSuccess: false,
+                  requestId,
+                  metadata: {
+                    actor_admin_id: callerAdminId,
+                    target_role_id: roleId,
+                    reason: 'system_role_assignment',
+                  },
+                };
+                throw new AuthorizationError(
+                  'Cannot assign a system role without super_admin privileges'
+                );
+              }
+            }
+
+            const targetPerms = await rolePermissionRepo.lockByRoleId(roleId, connection);
+            const missing = targetPerms.filter((p) => !locked.permissionSlugs.has(p.slug));
+            if (missing.length > 0) {
+              securityEvent = {
+                userId: actorUserId,
+                eventType: SECURITY_EVENT.ADMIN_PRIVILEGE_ESCALATION_ATTEMPT,
+                severity: SECURITY_SEVERITY.CRITICAL,
+                isSuccess: false,
+                requestId,
+                metadata: {
+                  actor_admin_id: callerAdminId,
+                  target_role_id: roleId,
+                  missing_permissions: missing.map((p) => p.slug),
+                },
+              };
+              throw new AuthorizationError(
+                'Cannot assign a role whose permissions exceed your own'
+              );
+            }
+          }
+
+          // Create user + admin + initial role assignments atomically.
+          const userId = await userRepo.createUser(
+            {
+              username: cleanUsername,
+              email: cleanEmail,
+              passwordHash,
+              firstName: cleanFirstName,
+              lastName: cleanLastName,
+              avatarUrl: cleanAvatarUrl,
+              status: USER_STATUS.ACTIVE,
+            },
+            connection
+          );
+
+          const { adminId } = await adminRepo.createAdmin({ userId }, connection);
+
+          for (const roleId of normalizedRoleIds) {
+            await adminRepo.assignRole(adminId, roleId, connection);
+          }
+
+          const created = await adminRepo.findByIdWithUser(adminId, connection);
+          await auditRepo.log(
+            {
+              action: AUDIT_ACTION.CREATE,
+              entityType: 'admin',
+              entityId: adminId,
+              beforeData: null,
+              afterData: {
+                admin_id: adminId,
+                user_id: userId,
+                username: cleanUsername,
+                email: cleanEmail,
+                role_ids: normalizedRoleIds,
+              },
+              actorUserId,
+              actorAdminId: callerAdminId,
+              requestId,
+            },
+            connection
+          );
+
+          return toAdminDto(created);
+        });
+      } catch (err) {
+        if (securityEvent) {
+          await logSecurityEventSafely(securityRepo, securityEvent);
+        }
+        throw err;
+      }
+    },
+
+    // ------------------------------------------------------------------------
+    // Update
+    // ------------------------------------------------------------------------
+
+    async updateAdmin(id, patch = {}, actor = {}) {
+      const numId = normalizePositiveId(id);
+      if (numId === null) {
+        throw new NotFoundError('Admin not found');
+      }
+
+      const callerAdminIdRaw = actor.adminId !== undefined ? actor.adminId : getAdminId();
+      const callerAdminId = normalizePositiveId(callerAdminIdRaw);
+      if (callerAdminId === null) {
+        throw new AuthorizationError('Caller admin identity is required');
+      }
+      const actorUserId = actor.userId !== undefined ? actor.userId : getUserId();
+      const requestId = getRequestId();
+
+      const cleanPatch = {};
+      if (patch.first_name !== undefined) {
+        cleanPatch.firstName = patch.first_name === null ? null : String(patch.first_name).trim();
+      }
+      if (patch.last_name !== undefined) {
+        cleanPatch.lastName = patch.last_name === null ? null : String(patch.last_name).trim();
+      }
+      if (patch.username !== undefined) {
+        cleanPatch.username = String(patch.username).trim().toLowerCase();
+      }
+      if (patch.status !== undefined) {
+        cleanPatch.status = patch.status;
+      }
+
+      if (Object.keys(cleanPatch).length === 0) {
+        throw new ValidationError('At least one field must be provided');
+      }
+
+      const isStatusChangeToNonActive =
+        cleanPatch.status !== undefined && cleanPatch.status !== ADMIN_STATUS.ACTIVE;
+
+      if (numId === callerAdminId && isStatusChangeToNonActive) {
+        await logSecurityEventSafely(securityRepo, {
+          userId: actorUserId,
+          eventType: SECURITY_EVENT.ADMIN_SELF_DEACTIVATION_ATTEMPT,
+          severity: SECURITY_SEVERITY.HIGH,
+          isSuccess: false,
+          requestId,
+          metadata: {
+            actor_admin_id: callerAdminId,
+            target_admin_id: numId,
+            attempted_status: cleanPatch.status,
+          },
+        });
+        throw new AuthorizationError('Self-deactivation is not permitted');
+      }
+
+      let securityEvent = null;
+
+      try {
+        return await withTransaction(async (connection) => {
+          let locked;
+          try {
+            locked = await lockAndVerifyCaller(
+              adminRepo,
+              roleRepo,
+              callerAdminId,
+              numId,
+              PERM_UPDATE_ADMIN,
+              connection
+            );
+          } catch (err) {
+            if (err.code === 'STALE_PERMISSION_IN_TRANSACTION') {
+              securityEvent = {
+                userId: actorUserId,
+                eventType: SECURITY_EVENT.ADMIN_PRIVILEGE_ESCALATION_ATTEMPT,
+                severity: SECURITY_SEVERITY.HIGH,
+                isSuccess: false,
+                requestId,
+                metadata: {
+                  actor_admin_id: callerAdminId,
+                  target_admin_id: numId,
+                  required_permission: PERM_UPDATE_ADMIN,
+                  reason: 'stale_permission_in_transaction',
+                },
+              };
+            }
+            throw err;
+          }
+
+          if (!locked.targetRow || locked.targetRow.deleted_at !== null) {
+            throw new NotFoundError('Admin not found');
+          }
+
+          if (isStatusChangeToNonActive) {
+            const wouldLockout = await wouldLockOutSuperAdmin(
+              adminRepo,
+              roleRepo,
+              connection,
+              numId
+            );
+            if (wouldLockout) {
+              securityEvent = {
+                userId: actorUserId,
+                eventType: SECURITY_EVENT.ADMIN_LAST_SUPER_ADMIN_LOCKOUT_ATTEMPT,
+                severity: SECURITY_SEVERITY.CRITICAL,
+                isSuccess: false,
+                requestId,
+                metadata: {
+                  actor_admin_id: callerAdminId,
+                  target_admin_id: numId,
+                  operation: 'deactivate',
+                },
+              };
+              throw new AuthorizationError('Cannot deactivate the last super_admin');
+            }
+          }
+
+          const existing = await adminRepo.findByIdWithUser(numId, connection);
+          if (!existing) {
+            throw new NotFoundError('Admin not found');
+          }
+
+          if (
+            cleanPatch.username !== undefined ||
+            cleanPatch.firstName !== undefined ||
+            cleanPatch.lastName !== undefined
+          ) {
+            await adminRepo.updateUserFields(existing.user_id, cleanPatch, connection);
+          }
+
+          if (cleanPatch.status !== undefined) {
+            await adminRepo.updateAdminStatus(numId, cleanPatch.status, connection);
+          }
+
+          const updated = await adminRepo.findByIdWithUser(numId, connection);
+
+          await auditRepo.log(
+            {
+              action: AUDIT_ACTION.UPDATE,
+              entityType: 'admin',
+              entityId: numId,
+              beforeData: toAdminAuditSnapshot(existing),
+              afterData: toAdminAuditSnapshot(updated),
+              actorUserId,
+              actorAdminId: callerAdminId,
+              requestId,
+            },
+            connection
+          );
+
+          return toAdminDto(updated);
+        });
+      } catch (err) {
+        if (securityEvent) {
+          await logSecurityEventSafely(securityRepo, securityEvent);
+        }
+        throw err;
+      }
+    },
+
+    // ------------------------------------------------------------------------
+    // Delete (soft)
+    // ------------------------------------------------------------------------
+
+    async deleteAdmin(id, actor = {}) {
+      const numId = normalizePositiveId(id);
+      if (numId === null) {
+        throw new NotFoundError('Admin not found');
+      }
+
+      const callerAdminIdRaw = actor.adminId !== undefined ? actor.adminId : getAdminId();
+      const callerAdminId = normalizePositiveId(callerAdminIdRaw);
+      if (callerAdminId === null) {
+        throw new AuthorizationError('Caller admin identity is required');
+      }
+      const actorUserId = actor.userId !== undefined ? actor.userId : getUserId();
+      const requestId = getRequestId();
+
+      if (numId === callerAdminId) {
+        await logSecurityEventSafely(securityRepo, {
+          userId: actorUserId,
+          eventType: SECURITY_EVENT.ADMIN_SELF_DELETION_ATTEMPT,
+          severity: SECURITY_SEVERITY.HIGH,
+          isSuccess: false,
+          requestId,
+          metadata: {
+            actor_admin_id: callerAdminId,
+            target_admin_id: numId,
+          },
+        });
+        throw new AuthorizationError('Self-deletion is not permitted');
+      }
+
+      let securityEvent = null;
+
+      try {
+        return await withTransaction(async (connection) => {
+          let locked;
+          try {
+            locked = await lockAndVerifyCaller(
+              adminRepo,
+              roleRepo,
+              callerAdminId,
+              numId,
+              PERM_DELETE_ADMIN,
+              connection
+            );
+          } catch (err) {
+            if (err.code === 'STALE_PERMISSION_IN_TRANSACTION') {
+              securityEvent = {
+                userId: actorUserId,
+                eventType: SECURITY_EVENT.ADMIN_PRIVILEGE_ESCALATION_ATTEMPT,
+                severity: SECURITY_SEVERITY.HIGH,
+                isSuccess: false,
+                requestId,
+                metadata: {
+                  actor_admin_id: callerAdminId,
+                  target_admin_id: numId,
+                  required_permission: PERM_DELETE_ADMIN,
+                  reason: 'stale_permission_in_transaction',
+                },
+              };
+            }
+            throw err;
+          }
+
+          if (!locked.targetRow || locked.targetRow.deleted_at !== null) {
+            throw new NotFoundError('Admin not found');
+          }
+
+          const wouldLockout = await wouldLockOutSuperAdmin(
+            adminRepo,
+            roleRepo,
+            connection,
+            numId
+          );
+          if (wouldLockout) {
+            securityEvent = {
+              userId: actorUserId,
+              eventType: SECURITY_EVENT.ADMIN_LAST_SUPER_ADMIN_LOCKOUT_ATTEMPT,
+              severity: SECURITY_SEVERITY.CRITICAL,
+              isSuccess: false,
+              requestId,
+              metadata: {
+                actor_admin_id: callerAdminId,
+                target_admin_id: numId,
+                operation: 'delete',
+              },
+            };
+            throw new AuthorizationError('Cannot delete the last super_admin');
+          }
+
+          const existing = await adminRepo.findByIdWithUser(numId, connection);
+          if (!existing) {
+            throw new NotFoundError('Admin not found');
+          }
+
+          const deleted = await adminRepo.softDeleteAdmin(numId, connection);
+          if (!deleted) {
+            throw new NotFoundError('Admin not found');
+          }
+
+          await auditRepo.log(
+            {
+              action: AUDIT_ACTION.DELETE,
+              entityType: 'admin',
+              entityId: numId,
+              beforeData: toAdminAuditSnapshot(existing),
+              afterData: null,
+              actorUserId,
+              actorAdminId: callerAdminId,
+              requestId,
+            },
+            connection
+          );
+
+          return true;
+        });
+      } catch (err) {
+        if (securityEvent) {
+          await logSecurityEventSafely(securityRepo, securityEvent);
+        }
+        throw err;
+      }
+    },
+
+    // ------------------------------------------------------------------------
+    // Role assignment / revocation
+    // ------------------------------------------------------------------------
+
+    async assignRoleToAdmin(adminId, roleId, actor = {}) {
+      const numAdminId = normalizePositiveId(adminId);
+      if (numAdminId === null) {
+        throw new NotFoundError('Admin not found');
+      }
+      const numRoleId = normalizePositiveId(roleId);
+      if (numRoleId === null) {
+        throw new ValidationError('roleId must be a positive integer');
+      }
+
+      const callerAdminIdRaw = actor.adminId !== undefined ? actor.adminId : getAdminId();
+      const callerAdminId = normalizePositiveId(callerAdminIdRaw);
+      if (callerAdminId === null) {
+        throw new AuthorizationError('Caller admin identity is required');
+      }
+      const actorUserId = actor.userId !== undefined ? actor.userId : getUserId();
+      const requestId = getRequestId();
+
+      if (numAdminId === callerAdminId) {
+        await logSecurityEventSafely(securityRepo, {
+          userId: actorUserId,
+          eventType: SECURITY_EVENT.ADMIN_SELF_ROLE_MUTATION_ATTEMPT,
+          severity: SECURITY_SEVERITY.HIGH,
+          isSuccess: false,
+          requestId,
+          metadata: {
+            actor_admin_id: callerAdminId,
+            target_admin_id: numAdminId,
+            target_role_id: numRoleId,
+            operation: 'assign',
+          },
+        });
+        throw new AuthorizationError('Cannot modify your own role assignments');
+      }
+
+      let securityEvent = null;
+
+      try {
+        return await withTransaction(async (connection) => {
+          let locked;
+          try {
+            locked = await lockAndVerifyCaller(
+              adminRepo,
+              roleRepo,
+              callerAdminId,
+              numAdminId,
+              PERM_ASSIGN_ROLE,
+              connection
+            );
+          } catch (err) {
+            if (err.code === 'STALE_PERMISSION_IN_TRANSACTION') {
+              securityEvent = {
+                userId: actorUserId,
+                eventType: SECURITY_EVENT.ADMIN_PRIVILEGE_ESCALATION_ATTEMPT,
+                severity: SECURITY_SEVERITY.HIGH,
+                isSuccess: false,
+                requestId,
+                metadata: {
+                  actor_admin_id: callerAdminId,
+                  target_admin_id: numAdminId,
+                  target_role_id: numRoleId,
+                  required_permission: PERM_ASSIGN_ROLE,
+                  reason: 'stale_permission_in_transaction',
+                },
+              };
+            }
+            throw err;
+          }
+
+          if (!locked.targetRow || locked.targetRow.deleted_at !== null) {
+            throw new NotFoundError('Admin not found');
+          }
+
+          const role = await roleRepo.findByIdForUpdate(numRoleId, connection);
+          if (!role) {
+            throw new NotFoundError('Role not found');
+          }
+
+          if (Boolean(role.is_system_role) && !locked.roleSlugs.has(SUPER_ADMIN_SLUG)) {
+            securityEvent = {
+              userId: actorUserId,
+              eventType: SECURITY_EVENT.ADMIN_PRIVILEGE_ESCALATION_ATTEMPT,
+              severity: SECURITY_SEVERITY.CRITICAL,
+              isSuccess: false,
+              requestId,
+              metadata: {
+                actor_admin_id: callerAdminId,
+                target_admin_id: numAdminId,
+                target_role_id: numRoleId,
+                reason: 'system_role_assignment',
+              },
+            };
+            throw new AuthorizationError(
+              'Cannot assign a system role without super_admin privileges'
+            );
+          }
+
+          const targetPerms = await rolePermissionRepo.lockByRoleId(numRoleId, connection);
+          const missing = targetPerms.filter((p) => !locked.permissionSlugs.has(p.slug));
+          if (missing.length > 0) {
+            securityEvent = {
+              userId: actorUserId,
+              eventType: SECURITY_EVENT.ADMIN_PRIVILEGE_ESCALATION_ATTEMPT,
+              severity: SECURITY_SEVERITY.CRITICAL,
+              isSuccess: false,
+              requestId,
+              metadata: {
+                actor_admin_id: callerAdminId,
+                target_admin_id: numAdminId,
+                target_role_id: numRoleId,
+                missing_permissions: missing.map((p) => p.slug),
+              },
+            };
+            throw new AuthorizationError(
+              'Cannot assign a role whose permissions exceed your own'
+            );
+          }
+
+          const already = await adminRepo.hasRole(numAdminId, numRoleId, connection);
+          if (already) {
+            return { assigned: false, alreadyExisted: true, role_id: numRoleId };
+          }
+
+          await adminRepo.assignRole(numAdminId, numRoleId, connection);
+
+          await auditRepo.log(
+            {
+              action: AUDIT_ACTION.GRANT,
+              entityType: 'admin_role',
+              entityId: numAdminId,
+              beforeData: null,
+              afterData: {
+                admin_id: numAdminId,
+                role_id: numRoleId,
+                role_slug: role.slug,
+              },
+              actorUserId,
+              actorAdminId: callerAdminId,
+              requestId,
+            },
+            connection
+          );
+
+          return { assigned: true, alreadyExisted: false, role_id: numRoleId };
+        });
+      } catch (err) {
+        if (securityEvent) {
+          await logSecurityEventSafely(securityRepo, securityEvent);
+        }
+        throw err;
+      }
+    },
+
+    async revokeRoleFromAdmin(adminId, roleId, actor = {}) {
+      const numAdminId = normalizePositiveId(adminId);
+      if (numAdminId === null) {
+        throw new NotFoundError('Admin not found');
+      }
+      const numRoleId = normalizePositiveId(roleId);
+      if (numRoleId === null) {
+        throw new ValidationError('roleId must be a positive integer');
+      }
+
+      const callerAdminIdRaw = actor.adminId !== undefined ? actor.adminId : getAdminId();
+      const callerAdminId = normalizePositiveId(callerAdminIdRaw);
+      if (callerAdminId === null) {
+        throw new AuthorizationError('Caller admin identity is required');
+      }
+      const actorUserId = actor.userId !== undefined ? actor.userId : getUserId();
+      const requestId = getRequestId();
+
+      if (numAdminId === callerAdminId) {
+        await logSecurityEventSafely(securityRepo, {
+          userId: actorUserId,
+          eventType: SECURITY_EVENT.ADMIN_SELF_ROLE_MUTATION_ATTEMPT,
+          severity: SECURITY_SEVERITY.HIGH,
+          isSuccess: false,
+          requestId,
+          metadata: {
+            actor_admin_id: callerAdminId,
+            target_admin_id: numAdminId,
+            target_role_id: numRoleId,
+            operation: 'revoke',
+          },
+        });
+        throw new AuthorizationError('Cannot modify your own role assignments');
+      }
+
+      let securityEvent = null;
+
+      try {
+        return await withTransaction(async (connection) => {
+          let locked;
+          try {
+            locked = await lockAndVerifyCaller(
+              adminRepo,
+              roleRepo,
+              callerAdminId,
+              numAdminId,
+              PERM_REVOKE_ROLE,
+              connection
+            );
+          } catch (err) {
+            if (err.code === 'STALE_PERMISSION_IN_TRANSACTION') {
+              securityEvent = {
+                userId: actorUserId,
+                eventType: SECURITY_EVENT.ADMIN_PRIVILEGE_ESCALATION_ATTEMPT,
+                severity: SECURITY_SEVERITY.HIGH,
+                isSuccess: false,
+                requestId,
+                metadata: {
+                  actor_admin_id: callerAdminId,
+                  target_admin_id: numAdminId,
+                  target_role_id: numRoleId,
+                  required_permission: PERM_REVOKE_ROLE,
+                  reason: 'stale_permission_in_transaction',
+                },
+              };
+            }
+            throw err;
+          }
+
+          if (!locked.targetRow || locked.targetRow.deleted_at !== null) {
+            throw new NotFoundError('Admin not found');
+          }
+
+          const role = await roleRepo.findByIdForUpdate(numRoleId, connection);
+          if (!role) {
+            throw new NotFoundError('Role not found');
+          }
+
+          if (Boolean(role.is_system_role) && !locked.roleSlugs.has(SUPER_ADMIN_SLUG)) {
+            securityEvent = {
+              userId: actorUserId,
+              eventType: SECURITY_EVENT.ADMIN_PRIVILEGE_ESCALATION_ATTEMPT,
+              severity: SECURITY_SEVERITY.CRITICAL,
+              isSuccess: false,
+              requestId,
+              metadata: {
+                actor_admin_id: callerAdminId,
+                target_admin_id: numAdminId,
+                target_role_id: numRoleId,
+                reason: 'system_role_revocation',
+              },
+            };
+            throw new AuthorizationError(
+              'Cannot revoke a system role without super_admin privileges'
+            );
+          }
+
+          const targetPerms = await rolePermissionRepo.lockByRoleId(numRoleId, connection);
+          const missing = targetPerms.filter((p) => !locked.permissionSlugs.has(p.slug));
+          if (missing.length > 0) {
+            securityEvent = {
+              userId: actorUserId,
+              eventType: SECURITY_EVENT.ADMIN_PRIVILEGE_ESCALATION_ATTEMPT,
+              severity: SECURITY_SEVERITY.CRITICAL,
+              isSuccess: false,
+              requestId,
+              metadata: {
+                actor_admin_id: callerAdminId,
+                target_admin_id: numAdminId,
+                target_role_id: numRoleId,
+                missing_permissions: missing.map((p) => p.slug),
+              },
+            };
+            throw new AuthorizationError(
+              'Cannot revoke a role whose permissions exceed your own'
+            );
+          }
+
+          if (role.slug === SUPER_ADMIN_SLUG) {
+            const wouldLockout = await wouldLockOutSuperAdmin(
+              adminRepo,
+              roleRepo,
+              connection,
+              numAdminId
+            );
+            if (wouldLockout) {
+              securityEvent = {
+                userId: actorUserId,
+                eventType: SECURITY_EVENT.ADMIN_LAST_SUPER_ADMIN_LOCKOUT_ATTEMPT,
+                severity: SECURITY_SEVERITY.CRITICAL,
+                isSuccess: false,
+                requestId,
+                metadata: {
+                  actor_admin_id: callerAdminId,
+                  target_admin_id: numAdminId,
+                  target_role_id: numRoleId,
+                  operation: 'revoke',
+                },
+              };
+              throw new AuthorizationError(
+                'Cannot revoke super_admin from the last super_admin'
+              );
+            }
+          }
+
+          const already = await adminRepo.hasRole(numAdminId, numRoleId, connection);
+          if (!already) {
+            return { revoked: false, alreadyMissing: true, role_id: numRoleId };
+          }
+
+          await adminRepo.revokeRole(numAdminId, numRoleId, connection);
+
+          await auditRepo.log(
+            {
+              action: AUDIT_ACTION.REVOKE,
+              entityType: 'admin_role',
+              entityId: numAdminId,
+              beforeData: {
+                admin_id: numAdminId,
+                role_id: numRoleId,
+                role_slug: role.slug,
+              },
+              afterData: null,
+              actorUserId,
+              actorAdminId: callerAdminId,
+              requestId,
+            },
+            connection
+          );
+
+          return { revoked: true, alreadyMissing: false, role_id: numRoleId };
+        });
+      } catch (err) {
+        if (securityEvent) {
+          await logSecurityEventSafely(securityRepo, securityEvent);
+        }
+        throw err;
+      }
+    },
+  };
+}
+
+export default createAdminService();
+```
+
+---
+
+## 6. VERIFICATION
+
+### A. Static verification commands
+
+```bash
+node --check app/repositories/admin.repository.js
+node --check app/repositories/role.repository.js
+node --check app/repositories/role-permission.repository.js
+node --check app/services/auth/admin.service.js
+```
+
+### B. Import verification commands
+
+```bash
+node -e "import('./app/repositories/admin.repository.js').then(m=>console.log(Object.keys(m)))"
+node -e "import('./app/repositories/role.repository.js').then(m=>console.log(Object.keys(m)))"
+node -e "import('./app/repositories/role-permission.repository.js').then(m=>console.log(Object.keys(m)))"
+node -e "import('./app/services/auth/admin.service.js').then(m=>console.log(Object.keys(m)))"
+```
+
+### C. Lock / concurrency review checklist
+
+```bash
+# Every mutating operation calls lockAndVerifyCaller inside withTransaction.
+grep -n "lockAndVerifyCaller" app/services/auth/admin.service.js
+
+# Caller auth state lock exists and uses FOR UPDATE.
+grep -n "lockCallerAuthStateForUpdate" app/repositories/role.repository.js app/services/auth/admin.service.js
+grep -n "FOR UPDATE" app/repositories/role.repository.js
+
+# Target role's role_permissions range lock exists and uses FOR UPDATE.
+grep -n "lockByRoleId" app/repositories/role-permission.repository.js app/services/auth/admin.service.js
+grep -n "FOR UPDATE" app/repositories/role-permission.repository.js
+
+# Admin row lock returns user_status so the caller-active check is authoritative.
+grep -n "user_status" app/repositories/admin.repository.js
+
+# Ascending-ID admin lock order.
+grep -n "idsToLock.sort" app/services/auth/admin.service.js
+
+# Stale-permission error code emitted and captured.
+grep -n "STALE_PERMISSION_IN_TRANSACTION" app/services/auth/admin.service.js
+
+# Operation-specific permission slugs.
+grep -nE "PERM_CREATE_ADMIN|PERM_UPDATE_ADMIN|PERM_DELETE_ADMIN|PERM_ASSIGN_ROLE|PERM_REVOKE_ROLE" app/services/auth/admin.service.js
+```
+
+Manual concurrency spot checks (run two `mysql` sessions in parallel and observe blocking):
+
+- Session A: `BEGIN; SELECT permission_id FROM role_permissions WHERE role_id = <callerRoleId> FOR UPDATE;` — leave open.
+- Session B: `DELETE FROM role_permissions WHERE role_id = <callerRoleId> AND permission_id = <anyExisting>;` — must block until A commits/rolls back.
+- Session A: `BEGIN; SELECT permission_id FROM role_permissions WHERE role_id = <targetRoleId> FOR UPDATE;` — leave open.
+- Session B: `INSERT INTO role_permissions (role_id, permission_id) VALUES (<targetRoleId>, <newPermissionId>);` — must block until A commits/rolls back.
+
+### D. Security constants verification
+
+```bash
+grep -nE "ADMIN_SELF_ROLE_MUTATION_ATTEMPT|ADMIN_SELF_DEACTIVATION_ATTEMPT|ADMIN_SELF_DELETION_ATTEMPT|ADMIN_LAST_SUPER_ADMIN_LOCKOUT_ATTEMPT|ADMIN_PRIVILEGE_ESCALATION_ATTEMPT" app/core/constants.js
+```
+
+All five constants are already present in the delivered `constants.js` (from the earlier Phase 3B-6 delivery). `SECURITY_SEVERITY.HIGH` and `SECURITY_SEVERITY.CRITICAL` already exist and are used by the service. `constants.js` is **not modified in this correction pass**. If the grep returns zero hits, add the block from §1 of the previous correction round before proceeding.
+
+### E. Confirmation — no migrations, no dependencies
+
+- **No files added under `database/migrations/`.** The correction uses only existing tables (`admins`, `users`, `admin_roles`, `roles`, `role_permissions`, `permissions`, `audit_logs`, `security_events`) and existing columns.
+- **No new dependencies.** All imports resolve to modules already in the project (`node:crypto`, existing repositories, existing constants, existing errors, existing transactions).
+- **No change to `package.json`.**
+- **No change to `app/routes/admin.routes.js`.**
+- **No change to middleware, RBAC service, password service, transaction helper, audit repository, security repository, response helpers, or errors.**
+
+```bash
+# Confirm no new migration files.
+ls database/migrations/ | wc -l
+ls database/migrations/ | tail -n 5
+
+# Confirm no new dependency.
+git diff package.json 2>/dev/null || echo "no package.json diff"
+```
+
+---
+
+FINAL CONCURRENCY + SECURITY CONSTANT CORRECTION COMPLETE — READY FOR REVIEW

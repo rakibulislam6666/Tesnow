@@ -1,0 +1,2719 @@
+
+========================================
+FILE: app/core/container.js
+========================================
+/**
+ * app/core/container.js
+ * Lightweight Dependency Injection Container for Tesnow
+ * Provides controlled dependency registration and resolution
+ * 
+ * @module container
+ */
+
+// ----------------------------------------------------------------------------
+// 1. CUSTOM ERRORS
+// ----------------------------------------------------------------------------
+
+export class ContainerError extends Error {
+    constructor(message, options = {}) {
+        super(message);
+        this.name = 'ContainerError';
+        this.code = options.code || 'CONTAINER_ERROR';
+        if (options.details) {
+            this.details = options.details;
+        }
+    }
+}
+
+export class DependencyNotFoundError extends ContainerError {
+    constructor(name, options = {}) {
+        super(`Dependency "${name}" not found`, {
+            code: 'DEPENDENCY_NOT_FOUND',
+            details: { name },
+            ...options,
+        });
+        this.name = 'DependencyNotFoundError';
+    }
+}
+
+export class DuplicateDependencyError extends ContainerError {
+    constructor(name, options = {}) {
+        super(`Dependency "${name}" already registered`, {
+            code: 'DUPLICATE_DEPENDENCY',
+            details: { name },
+            ...options,
+        });
+        this.name = 'DuplicateDependencyError';
+    }
+}
+
+export class CircularDependencyError extends ContainerError {
+    constructor(name, chain, options = {}) {
+        const chainStr = chain.join(' -> ');
+        super(`Circular dependency detected: ${chainStr} -> ${name}`, {
+            code: 'CIRCULAR_DEPENDENCY',
+            details: { name, chain },
+            ...options,
+        });
+        this.name = 'CircularDependencyError';
+    }
+}
+
+export class InvalidDefinitionError extends ContainerError {
+    constructor(name, message, options = {}) {
+        super(`Invalid definition for "${name}": ${message}`, {
+            code: 'INVALID_DEFINITION',
+            details: { name },
+            ...options,
+        });
+        this.name = 'InvalidDefinitionError';
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 2. VALIDATION HELPERS
+// ----------------------------------------------------------------------------
+
+const VALID_TYPES = new Set(['value', 'singleton', 'factory']);
+
+function validateName(name) {
+    if (typeof name !== 'string') {
+        throw new ContainerError('Dependency name must be a string', {
+            code: 'INVALID_NAME',
+            details: { name },
+        });
+    }
+    
+    const trimmed = name.trim();
+    if (trimmed.length === 0) {
+        throw new ContainerError('Dependency name cannot be empty', {
+            code: 'INVALID_NAME',
+        });
+    }
+    
+    // Prevent prototype pollution
+    if (trimmed === '__proto__' || trimmed === 'constructor' || trimmed === 'prototype') {
+        throw new ContainerError(`Invalid dependency name: "${trimmed}"`, {
+            code: 'INVALID_NAME',
+            details: { name: trimmed },
+        });
+    }
+    
+    return trimmed;
+}
+
+function validateDefinition(name, definition) {
+    if (!definition || typeof definition !== 'object') {
+        throw new InvalidDefinitionError(name, 'Definition must be an object');
+    }
+    
+    const { type, value, factory, dispose } = definition;
+    
+    if (!type || typeof type !== 'string') {
+        throw new InvalidDefinitionError(name, 'Type is required and must be a string');
+    }
+    
+    if (!VALID_TYPES.has(type)) {
+        throw new InvalidDefinitionError(
+            name,
+            `Type must be one of: ${Array.from(VALID_TYPES).join(', ')}`
+        );
+    }
+    
+    if (type === 'value') {
+        if (!('value' in definition)) {
+            throw new InvalidDefinitionError(name, 'Value type requires a "value" property');
+        }
+    } else if (type === 'singleton' || type === 'factory') {
+        if (!factory || typeof factory !== 'function') {
+            throw new InvalidDefinitionError(name, `${type} type requires a "factory" function`);
+        }
+    }
+    
+    // Validate dispose if provided
+    if (dispose !== undefined && typeof dispose !== 'function') {
+        throw new InvalidDefinitionError(name, 'Dispose must be a function if provided');
+    }
+}
+
+function isPromise(value) {
+    return value && typeof value === 'object' && typeof value.then === 'function';
+}
+
+// ----------------------------------------------------------------------------
+// 3. DEPENDENCY RECORD
+// ----------------------------------------------------------------------------
+
+class DependencyRecord {
+    constructor(definition) {
+        this.type = definition.type;
+        this.factory = definition.factory || null;
+        this.value = definition.type === 'value' ? definition.value : null;
+        this.dispose = definition.dispose || null;
+        this.instance = null;
+        this.resolving = false;
+        this.initialized = false;
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 4. CONTAINER CLASS
+// ----------------------------------------------------------------------------
+
+export class Container {
+    constructor() {
+        this._registry = new Map();
+        this._resolving = new Set();
+        this._disposed = false;
+    }
+    
+    /**
+     * Register a dependency
+     * @param {string} name - Dependency name
+     * @param {Object} definition - Dependency definition
+     * @param {string} definition.type - Type: 'value', 'singleton', or 'factory'
+     * @param {*} definition.value - Value for 'value' type
+     * @param {Function} definition.factory - Factory function for 'singleton'/'factory' types
+     * @param {Function} definition.dispose - Optional dispose function
+     * @returns {this} Container instance for chaining
+     * @throws {DuplicateDependencyError} If dependency already registered
+     * @throws {InvalidDefinitionError} If definition is invalid
+     */
+    register(name, definition) {
+        if (this._disposed) {
+            throw new ContainerError('Container has been disposed', {
+                code: 'CONTAINER_DISPOSED',
+            });
+        }
+        
+        const safeName = validateName(name);
+        
+        if (this._registry.has(safeName)) {
+            throw new DuplicateDependencyError(safeName);
+        }
+        
+        validateDefinition(safeName, definition);
+        
+        // Create a copy of the definition to prevent mutation
+        const record = new DependencyRecord(definition);
+        this._registry.set(safeName, record);
+        
+        return this;
+    }
+    
+    /**
+     * Register a value dependency (convenience method)
+     * @param {string} name - Dependency name
+     * @param {*} value - Value to register
+     * @returns {this} Container instance for chaining
+     */
+    registerValue(name, value) {
+        return this.register(name, {
+            type: 'value',
+            value,
+        });
+    }
+    
+    /**
+     * Register a singleton dependency (convenience method)
+     * @param {string} name - Dependency name
+     * @param {Function} factory - Factory function
+     * @param {Function} dispose - Optional dispose function
+     * @returns {this} Container instance for chaining
+     */
+    registerSingleton(name, factory, dispose = null) {
+        const definition = { type: 'singleton', factory };
+        if (dispose) {
+            definition.dispose = dispose;
+        }
+        return this.register(name, definition);
+    }
+    
+    /**
+     * Register a factory dependency (convenience method)
+     * @param {string} name - Dependency name
+     * @param {Function} factory - Factory function
+     * @returns {this} Container instance for chaining
+     */
+    registerFactory(name, factory) {
+        return this.register(name, {
+            type: 'factory',
+            factory,
+        });
+    }
+    
+    /**
+     * Check if a dependency is registered
+     * @param {string} name - Dependency name
+     * @returns {boolean} True if registered
+     */
+    has(name) {
+        if (this._disposed) {
+            return false;
+        }
+        
+        try {
+            const safeName = validateName(name);
+            return this._registry.has(safeName);
+        } catch {
+            return false;
+        }
+    }
+    
+    /**
+     * Resolve a dependency synchronously
+
+========================================
+FILE: app/core/app.js
+========================================
+import { getDbPool } from '../config/database.config.js';
+import rootRouter from '../routes/index.routes.js';
+import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import helmet from 'helmet';
+import cors from 'cors';
+import cookieParser from 'cookie-parser';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import session from 'express-session';
+import pinoHttp from 'pino-http';
+import { randomBytes } from 'crypto';
+
+// Configuration imports
+import appConfig from '../config/app.config.js';
+import securityConfig from '../config/security.config.js';
+import sessionConfig, { getSessionSecret } from '../config/session.config.js';
+import corsConfig from '../config/cors.config.js';
+import apiConfig from '../config/api.config.js';
+import uploadConfig from '../config/upload.config.js';
+import rateLimitConfig from '../config/rate-limit.config.js';
+
+// Core imports
+import logger from './logger.js';
+import { AppError, ErrorCodes } from './errors.js';
+import { generateRequestId } from './constants.js';
+import { getRequestContext, runWithRequestContext } from './request-context.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Project root path (~/Tesnow)
+const PROJECT_ROOT = path.resolve(__dirname, '../..');
+
+// Initialize Express app
+const app = express();
+
+// ----------------------------------------------------------------------------
+// 1. ENVIRONMENT & CONFIGURATION
+// ----------------------------------------------------------------------------
+
+const NODE_ENV = appConfig.NODE_ENV || 'development';
+const IS_PRODUCTION = NODE_ENV === 'production';
+
+// ----------------------------------------------------------------------------
+// 2. BASIC EXPRESS HARDENING
+// ----------------------------------------------------------------------------
+
+// Disable fingerprinting headers
+app.disable('x-powered-by');
+
+// Trust proxy configuration
+if (appConfig.TRUST_PROXY !== undefined) {
+    app.set('trust proxy', appConfig.TRUST_PROXY);
+} else {
+    // Only trust proxy if explicitly configured
+    app.set('trust proxy', false);
+}
+
+// ----------------------------------------------------------------------------
+// 3. REQUEST ID
+// ----------------------------------------------------------------------------
+
+app.use((req, res, next) => {
+    // Use incoming X-Request-ID if present and trusted, otherwise generate
+    const incomingRequestId = req.headers['x-request-id'];
+    const requestId = (incomingRequestId && typeof incomingRequestId === 'string')
+        ? incomingRequestId
+        : generateRequestId();
+
+    // Store in request for logging/error handling
+    req.id = requestId;
+
+    // Set response header
+    res.setHeader('X-Request-ID', requestId);
+
+    // Create request context for async operations
+    runWithRequestContext({ requestId }, () => {
+        next();
+    });
+});
+
+// ----------------------------------------------------------------------------
+// 4. LOGGING
+// ----------------------------------------------------------------------------
+
+if (logger && typeof logger.pinoHttp === 'function') {
+    // Use pino-http for request logging
+    app.use(pinoHttp({
+        logger: logger,
+        genReqId: (req) => req.id,
+        // Redact sensitive data from logs
+        redact: {
+            paths: [
+                'req.headers.authorization',
+                'req.headers.cookie',
+                'req.headers["x-api-key"]',
+                'req.body.password',
+                'req.body.token',
+                'req.body.secret',
+                'req.body.creditCard',
+                'req.body.cvv',
+                'req.body.newPassword',
+                'req.body.currentPassword',
+                'req.body.confirmPassword',
+            ],
+            censor: '***REDACTED***'
+        },
+        // Don't log full request bodies by default
+        serializers: {
+            req: (req) => ({
+                id: req.id,
+                method: req.method,
+                url: req.url,
+                headers: req.headers,
+                remoteAddress: req.remoteAddress,
+                remotePort: req.remotePort,
+            }),
+            res: (res) => ({
+                statusCode: res.statusCode,
+                headers: res.headers,
+            }),
+        },
+        // Customize log level based on status code
+        customLogLevel: (req, res, err) => {
+            if (res.statusCode >= 500 || err) return 'error';
+            if (res.statusCode >= 400) return 'warn';
+            return 'info';
+        },
+        // Custom success message
+        customSuccessMessage: (req, res) => {
+            return `${req.method} ${req.url} ${res.statusCode}`;
+        },
+        // Custom error message
+        customErrorMessage: (req, res, err) => {
+            return `${req.method} ${req.url} ${res.statusCode} - ${err.message}`;
+        },
+    }));
+} else {
+    // Fallback logging middleware if logger not available
+    app.use((req, res, next) => {
+        const start = Date.now();
+        res.on('finish', () => {
+            const duration = Date.now() - start;
+            // Simple console logging as fallback
+            console.log(`${req.method} ${req.url} ${res.statusCode} ${duration}ms [${req.id}]`);
+        });
+        next();
+    });
+}
+
+// ----------------------------------------------------------------------------
+// 5. SECURITY HEADERS
+// ----------------------------------------------------------------------------
+
+// Base Helmet configuration
+const helmetConfig = {
+    // Content Security Policy - configured for EJS/static assets
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-inline'"], // EJS may need inline scripts
+            styleSrc: ["'self'", "'unsafe-inline'"], // EJS styles
+            imgSrc: ["'self'", 'data:', 'https:'],
+            fontSrc: ["'self'"],
+            connectSrc: ["'self'"],
+            frameSrc: ["'self'"],
+            objectSrc: ["'none'"],
+            baseUri: ["'self'"],
+            formAction: ["'self'"],
+            upgradeInsecureRequests: IS_PRODUCTION ? [] : null,
+        },
+        reportOnly: !IS_PRODUCTION,
+    },
+    // Additional security headers
+    xContentTypeOptions: true,
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    hsts: IS_PRODUCTION ? {
+        maxAge: 31536000,
+        includeSubDomains: true,
+        preload: true,
+    } : false,
+    frameguard: { action: 'deny' },
+    dnsPrefetchControl: { allow: false },
+    permissionsPolicy: {
+        features: {
+            geolocation: ["'self'"],
+            microphone: ["'none'"],
+            camera: ["'none'"],
+            payment: ["'self'"],
+            syncXhr: ["'self'"],
+            // Add additional permissions as needed
+        }
+    },
+    crossOriginEmbedderPolicy: false, // Allow embedding for blog content
+};
+
+// Use Helmet with secure configuration
+app.use(helmet(helmetConfig));
+
+// Additional security headers not covered by Helmet
+app.use((req, res, next) => {
+    // Prevent MIME type sniffing (already set by Helmet, but ensure)
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+
+    // Remove potential server information (already removed by app.disable)
+    // Additional header protections
+    res.setHeader('X-DNS-Prefetch-Control', 'off');
+
+    // Only set HSTS in production
+    if (IS_PRODUCTION) {
+        res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+    }
+
+    next();
+});
+
+// ----------------------------------------------------------------------------
+// 6. CORS
+// ----------------------------------------------------------------------------
+
+let corsOptions = {
+    origin: false, // Disabled by default - will be configured
+    credentials: false,
+};
+
+if (corsConfig) {
+    const allowedOrigins = corsConfig.ALLOWED_ORIGINS || [];
+    const allowCredentials = corsConfig.CREDENTIALS === true;
+
+    if (Array.isArray(allowedOrigins) && allowedOrigins.length > 0) {
+        // Validate origins
+        const validatedOrigins = allowedOrigins.filter(origin => {
+            try {
+                const url = new URL(origin);
+                return url.protocol === 'http:' || url.protocol === 'https:';
+            } catch {
+                // If it's not a valid URL, check if it's a regex pattern
+                // For simplicity, we'll allow it
+                return true;
+            }
+        });
+
+        if (validatedOrigins.length > 0) {
+            corsOptions = {
+                origin: function (origin, callback) {
+                    // Allow requests with no origin (like mobile apps, curl)
+                    if (!origin) return callback(null, true);
+
+                    // Check if origin is allowed
+                    const isAllowed = validatedOrigins.some(allowed => {
+                        if (allowed === '*') return false; // Never allow wildcard with credentials
+                        return origin === allowed || origin.endsWith(allowed.substring(1));
+                    });
+
+                    // Also check for localhost in development
+                    if (!isAllowed && !IS_PRODUCTION) {
+                        // Allow localhost for development
+                        const localhostRegex = /^https?:\/\/localhost(:\d+)?$/;
+                        const ipRegex = /^https?:\/\/127\.0\.0\.1(:\d+)?$/;
+
+========================================
+FILE: app/config/index.js
+========================================
+/**
+ * app/config/index.js
+ * Centralized configuration entry point for Tesnow
+ * Aggregates and re-exports all configuration modules
+ * 
+ * @module config/index
+ */
+
+// Import configuration modules
+import appConfig from './app.config.js';
+import databaseConfig from './database.config.js';
+import securityConfig from './security.config.js';
+import sessionConfig from './session.config.js';
+import emailConfig from './email.config.js';
+import storageConfig from './storage.config.js';
+import cacheConfig from './cache.config.js';
+import apiConfig from './api.config.js';
+import seoConfig from './seo.config.js';
+import analyticsConfig from './analytics.config.js';
+import uploadConfig from './upload.config.js';
+import queueConfig from './queue.config.js';
+import monitoringConfig from './monitoring.config.js';
+import oauthConfig from './oauth.config.js';
+import paymentConfig from './payment.config.js';
+import featureFlagsConfig from './feature-flags.config.js';
+
+// ----------------------------------------------------------------------------
+// 2. NAMED EXPORTS
+// ----------------------------------------------------------------------------
+
+// Export each configuration module as a named export
+export {
+    appConfig,
+    databaseConfig,
+    securityConfig,
+    sessionConfig,
+    emailConfig,
+    storageConfig,
+    cacheConfig,
+    apiConfig,
+    seoConfig,
+    analyticsConfig,
+    uploadConfig,
+    queueConfig,
+    monitoringConfig,
+    oauthConfig,
+    paymentConfig,
+    featureFlagsConfig,
+};
+
+// Also export any named helpers from each module if needed
+// (The default objects already contain the public API, so we don't need to
+// individually re-export each helper function.)
+
+// ----------------------------------------------------------------------------
+// 3. DEFAULT EXPORT
+// ----------------------------------------------------------------------------
+
+/**
+ * Combined configuration object
+ * @property {Object} app - Application configuration
+ * @property {Object} database - Database configuration
+ * @property {Object} security - Security configuration
+ * @property {Object} session - Session configuration
+ * @property {Object} email - Email/SMTP configuration
+ * @property {Object} storage - Storage configuration
+ * @property {Object} cache - Cache configuration
+ * @property {Object} api - API configuration
+ * @property {Object} seo - SEO configuration
+ * @property {Object} analytics - Analytics configuration
+ * @property {Object} upload - Upload configuration
+ * @property {Object} queue - Queue configuration
+ * @property {Object} monitoring - Monitoring configuration
+ * @property {Object} oauth - OAuth configuration
+ * @property {Object} payment - Payment configuration
+ * @property {Object} featureFlags - Feature flags configuration
+ */
+const combinedConfig = {
+    app: appConfig,
+    database: databaseConfig,
+    security: securityConfig,
+    session: sessionConfig,
+    email: emailConfig,
+    storage: storageConfig,
+    cache: cacheConfig,
+    api: apiConfig,
+    seo: seoConfig,
+    analytics: analyticsConfig,
+    upload: uploadConfig,
+    queue: queueConfig,
+    monitoring: monitoringConfig,
+    oauth: oauthConfig,
+    payment: paymentConfig,
+    featureFlags: featureFlagsConfig,
+};
+
+// Freeze to prevent mutation
+Object.freeze(combinedConfig);
+
+// Deep freeze nested objects (but skip functions like getDbPool, etc.)
+// We'll rely on individual config modules to freeze their own exports.
+
+export default combinedConfig;
+
+// ----------------------------------------------------------------------------
+// 4. UTILITY FUNCTIONS
+// ----------------------------------------------------------------------------
+
+/**
+ * Collect validation results from all configuration modules that provide a validate function
+ * @returns {Object} Validation result with errors and warnings
+ */
+export function validateAllConfig() {
+    const allErrors = [];
+    const allWarnings = [];
+    const configs = {
+        app: appConfig,
+        database: databaseConfig,
+        security: securityConfig,
+        session: sessionConfig,
+        email: emailConfig,
+        storage: storageConfig,
+        cache: cacheConfig,
+        api: apiConfig,
+        seo: seoConfig,
+        analytics: analyticsConfig,
+        upload: uploadConfig,
+        queue: queueConfig,
+        monitoring: monitoringConfig,
+        oauth: oauthConfig,
+        payment: paymentConfig,
+        featureFlags: featureFlagsConfig,
+    };
+
+    for (const [name, config] of Object.entries(configs)) {
+        if (config && typeof config.validateConfig === 'function') {
+            try {
+                const result = config.validateConfig();
+                if (!result.valid) {
+                    allErrors.push({ module: name, errors: result.errors });
+                }
+                if (result.warnings && result.warnings.length > 0) {
+                    allWarnings.push({ module: name, warnings: result.warnings });
+                }
+            } catch (error) {
+                allErrors.push({ module: name, error: error.message });
+            }
+        }
+    }
+
+    return {
+        valid: allErrors.length === 0,
+        errors: allErrors,
+        warnings: allWarnings,
+    };
+}
+
+/**
+ * Get a safe, non-sensitive representation of all configuration
+ * @returns {Object} Safe configuration for logging/diagnostics
+ */
+export function getSafeConfig() {
+    const safe = {};
+
+    const configs = {
+        app: appConfig,
+        database: databaseConfig,
+        security: securityConfig,
+        session: sessionConfig,
+        email: emailConfig,
+        storage: storageConfig,
+        cache: cacheConfig,
+        api: apiConfig,
+        seo: seoConfig,
+        analytics: analyticsConfig,
+        upload: uploadConfig,
+        queue: queueConfig,
+        monitoring: monitoringConfig,
+        oauth: oauthConfig,
+        payment: paymentConfig,
+        featureFlags: featureFlagsConfig,
+    };
+
+    for (const [name, config] of Object.entries(configs)) {
+        if (config && typeof config.getSafeConfig === 'function') {
+            try {
+                safe[name] = config.getSafeConfig();
+            } catch {
+                // If getSafeConfig fails, fall back to a safe default
+                safe[name] = { error: 'Unable to retrieve safe config' };
+            }
+        } else if (config && typeof config.getSafe === 'function') {
+            // Some modules might use getSafe (e.g., cache, queue)
+            try {
+                safe[name] = config.getSafe();
+            } catch {
+                safe[name] = { error: 'Unable to retrieve safe config' };
+            }
+        } else {
+            // For modules without a safe getter, omit sensitive data
+            safe[name] = { available: true };
+        }
+    }
+
+    return safe;
+}
+========================================
+FILE: app/config/database.config.js
+========================================
+/**
+ * ============================================================
+ * TESNOW — DATABASE CONFIGURATION
+ * ============================================================
+ *
+ * Production-ready MySQL configuration module.
+ *
+ * Responsibilities:
+ * - Load environment configuration
+ * - Validate database settings
+ * - Lazily create a MySQL connection pool
+ * - Provide safe configuration information
+ * - Provide a database connectivity test
+ *
+ * Security:
+ * - Database password is never exported
+ * - Database password is never logged
+ * - Placeholder passwords are rejected
+ * - Numeric configuration values are strictly validated
+ * - Multiple SQL statements are disabled
+ * - Database connection is NOT attempted on module import
+ *
+ * Future-ready for:
+ * - Transactions
+ * - Repositories
+ * - Migrations
+ * - Health checks
+ * - Graceful shutdown
+ * ============================================================
+ */
+
+import mysql from 'mysql2/promise';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+/**
+ * Known placeholder passwords that must never be used.
+ */
+const PLACEHOLDER_PASSWORDS = new Set([
+  'CHANGE_ME_DATABASE_PASSWORD',
+  'YOUR_SECURE_DB_PASSWORD_HERE',
+  'YOUR_DB_PASSWORD_HERE',
+  'YOUR_PASSWORD_HERE',
+  'CHANGE_ME',
+  'changeme',
+  'password',
+  'your_password_here',
+]);
+
+/**
+ * Internal pool state.
+ *
+ * The pool remains null until getDbPool() is called.
+ */
+let pool = null;
+
+/**
+ * Internal validated configuration.
+ *
+ * This is intentionally never exported directly because
+ * it contains the database password.
+ */
+let databaseConfig = null;
+
+/**
+ * Check whether a value contains only decimal digits.
+ *
+ * @param {string} value
+ * @returns {boolean}
+ */
+function isStrictInteger(value) {
+  return /^\d+$/.test(value.trim());
+}
+
+/**
+ * Parse and validate a required numeric environment value.
+ *
+ * @param {string} name
+ * @param {string|undefined} rawValue
+ * @param {number} defaultValue
+ * @param {number} minimum
+ * @param {number} maximum
+ * @returns {number}
+ */
+function parseIntegerEnv(
+  name,
+  rawValue,
+  defaultValue,
+  minimum,
+  maximum = Number.MAX_SAFE_INTEGER
+) {
+  const value = rawValue?.trim() || String(defaultValue);
+
+  if (!isStrictInteger(value)) {
+    throw new Error(`${name} must contain only numeric digits.`);
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error(`${name} must be a valid safe integer.`);
+  }
+
+  if (parsed < minimum || parsed > maximum) {
+    throw new Error(
+      `${name} must be between ${minimum} and ${maximum}.`
+    );
+  }
+
+  return parsed;
+}
+
+/**
+ * Validate database environment configuration.
+ *
+ * This function does not create a connection.
+ *
+ * @returns {Object}
+ * @throws {Error}
+ */
+function validateDatabaseConfig() {
+  const requiredFields = [
+    'DB_HOST',
+    'DB_NAME',
+    'DB_USER',
+  ];
+
+  const missingFields = requiredFields.filter((name) => {
+    const value = process.env[name];
+    return !value || value.trim() === '';
+  });
+
+  if (missingFields.length > 0) {
+    throw new Error(
+      `Missing required database configuration: ${missingFields.join(', ')}`
+    );
+  }
+
+  const host = process.env.DB_HOST.trim();
+  const database = process.env.DB_NAME.trim();
+  const user = process.env.DB_USER.trim();
+
+  /**
+   * Password must always exist and must never use
+   * known placeholder values.
+   */
+  const rawPassword = process.env.DB_PASSWORD;
+
+  if (!rawPassword || rawPassword.trim() === '') {
+    throw new Error(
+      'DB_PASSWORD is required and cannot be empty.'
+    );
+  }
+
+  const password = rawPassword.trim();
+
+  const isPlaceholder = [...PLACEHOLDER_PASSWORDS].some(
+    (placeholder) =>
+      password.toLowerCase() === placeholder.toLowerCase()
+  );
+
+  if (isPlaceholder) {
+    throw new Error(
+      'DB_PASSWORD contains a placeholder value. Please set a secure password.'
+    );
+  }
+
+  const port = parseIntegerEnv(
+    'DB_PORT',
+    process.env.DB_PORT,
+    3306,
+    1,
+    65535
+  );
+
+  const connectionLimit = parseIntegerEnv(
+    'DB_CONNECTION_LIMIT',
+    process.env.DB_CONNECTION_LIMIT,
+    10,
+    1,
+    1000
+  );
+
+  const queueLimit = parseIntegerEnv(
+    'DB_QUEUE_LIMIT',
+    process.env.DB_QUEUE_LIMIT,
+    0,
+    0,
+    Number.MAX_SAFE_INTEGER
+  );
+
+  const connectTimeout = parseIntegerEnv(
+    'DB_CONNECT_TIMEOUT',
+    process.env.DB_CONNECT_TIMEOUT,
+    10000,
+    1,
+    300000
+  );
+
+  return {
+    host,
+    port,
+    database,
+    user,
+    password,
+
+    connectionLimit,
+    queueLimit,
+    connectTimeout,
+
+    charset: 'utf8mb4',
+    timezone: '+00:00',
+
+    /**
+     * Security:
+     * Prevent execution of multiple SQL statements
+     * through a single query call.
+     */
+    multipleStatements: false,
+
+    /**
+     * Return DATE/DATETIME values as strings.
+     * This avoids implicit timezone conversion surprises.
+     */
+    dateStrings: true,
+
+    /**
+     * TCP keep-alive helps long-running server processes.
+     */
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 10000,
+  };
+}
+
+/**
+ * Return validated internal configuration.
+ *
+ * Validation is cached after the first successful call.
+ *
+ * @returns {Object}
+ */
+function getValidatedConfig() {
+  if (!databaseConfig) {
+    databaseConfig = validateDatabaseConfig();
+  }
+
+  return databaseConfig;
+}
+
+/**
+ * Lazily create and return the MySQL connection pool.
+ *
+ * IMPORTANT:
+ * Calling this function creates the pool, but it does not
+ * explicitly establish a database connection immediately.
+ *
+ * @returns {import('mysql2/promise').Pool}
+ */
+function getDbPool() {
+
+========================================
+FILE: app/repositories/user.repository.js
+========================================
+/**
+ * app/repositories/user.repository.js
+ * User data access – dashboard counts, recent users, and authentication lookup.
+ */
+
+import { getDbPool } from '../config/database.config.js';
+
+const DEFAULT_LIMIT = 10;
+const MAX_LIMIT = 100;
+
+function validatePositiveInteger(value, name) {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative integer`);
+  }
+  return value;
+}
+
+function validateLimit(limit) {
+  const val = validatePositiveInteger(limit, 'limit');
+  if (val > MAX_LIMIT) throw new Error(`limit cannot exceed ${MAX_LIMIT}`);
+  return val;
+}
+
+export function createUserRepository(pool = getDbPool()) {
+  return {
+    // --- Dashboard / list methods ---
+    async countAll() {
+      const [rows] = await pool.query(
+        'SELECT COUNT(*) AS count FROM users WHERE deleted_at IS NULL'
+      );
+      return Number(rows[0].count);
+    },
+
+    async findRecent({ limit = DEFAULT_LIMIT, offset = 0 }) {
+      const safeLimit = validateLimit(limit);
+      const safeOffset = validatePositiveInteger(offset, 'offset');
+      const [rows] = await pool.query(
+        `SELECT
+          id,
+          username,
+          first_name,
+          last_name,
+          avatar_url,
+          created_at
+        FROM users
+        WHERE deleted_at IS NULL
+        ORDER BY created_at DESC, id DESC
+        LIMIT ? OFFSET ?`,
+        [safeLimit, safeOffset]
+      );
+      return rows;
+    },
+
+    // --- Authentication methods ---
+    /**
+     * Find a user by username or email (case‑insensitive, via collation).
+     * Returns password_hash and all fields needed for authentication.
+     */
+    async findByUsernameOrEmail(usernameOrEmail) {
+      if (typeof usernameOrEmail !== 'string' || usernameOrEmail.trim() === '') {
+        throw new Error('usernameOrEmail must be a non-empty string');
+      }
+      const [rows] = await pool.query(
+        `SELECT
+          id,
+          username,
+          email,
+          password_hash,
+          status,
+          created_at,
+          deleted_at
+        FROM users
+        WHERE (username = ? OR email = ?) AND deleted_at IS NULL
+        LIMIT 1`,
+        [usernameOrEmail, usernameOrEmail]
+      );
+      return rows[0] || null;
+    },
+
+    /**
+     * Find a user by ID (used to re‑validate authenticated sessions).
+     */
+    async findById(id) {
+      if (!Number.isInteger(id) || id <= 0) {
+        throw new Error('id must be a positive integer');
+      }
+      const [rows] = await pool.query(
+        `SELECT
+          id,
+          username,
+          email,
+          password_hash,
+          status,
+          created_at,
+          deleted_at
+        FROM users
+        WHERE id = ? AND deleted_at IS NULL
+        LIMIT 1`,
+        [id]
+      );
+      return rows[0] || null;
+    },
+  };
+}
+
+export default createUserRepository();
+========================================
+FILE: app/repositories/role.repository.js
+========================================
+/**
+ * app/repositories/role.repository.js
+ * Role and permission data access.
+ *
+ * Repository rules:
+ *  - No method starts, commits, or rolls back a transaction.
+ *  - Locking methods take an explicit `connection` and use `FOR UPDATE`.
+ */
+
+import { randomUUID } from 'node:crypto';
+import { getDbPool } from '../config/database.config.js';
+import { ADMIN_STATUS } from '../core/constants.js';
+
+const ROLE_COLUMNS = `
+  id,
+  uuid,
+  name,
+  slug,
+  description,
+  is_system_role,
+  created_at,
+  updated_at
+`;
+
+export function createRoleRepository(pool = getDbPool()) {
+  return {
+    // ------------------------------------------------------------------------
+    // Existing methods (preserved)
+    // ------------------------------------------------------------------------
+
+    async hasPermission(adminId, permissionSlug) {
+      if (!Number.isInteger(adminId) || adminId <= 0) {
+        throw new Error('adminId must be a positive integer');
+      }
+      if (typeof permissionSlug !== 'string' || permissionSlug.trim() === '') {
+        throw new Error('permissionSlug must be a non-empty string');
+      }
+
+      const [rows] = await pool.query(
+        `SELECT EXISTS (
+          SELECT 1
+          FROM admins a
+          JOIN admin_roles ar ON a.id = ar.admin_id
+          JOIN roles r ON ar.role_id = r.id
+          JOIN role_permissions rp ON r.id = rp.role_id
+          JOIN permissions p ON rp.permission_id = p.id
+          WHERE a.id = ?
+            AND a.deleted_at IS NULL
+            AND a.status = ?
+            AND r.deleted_at IS NULL
+            AND p.slug = ?
+        ) AS has_permission`,
+        [adminId, ADMIN_STATUS.ACTIVE, permissionSlug]
+      );
+
+      return Boolean(rows[0] && rows[0].has_permission);
+    },
+
+    async findAll() {
+      const [rows] = await pool.query(
+        `SELECT ${ROLE_COLUMNS}
+        FROM roles
+        WHERE deleted_at IS NULL
+        ORDER BY id ASC`
+      );
+      return rows;
+    },
+
+    async findById(id) {
+      if (!Number.isInteger(id) || id <= 0) {
+        throw new Error('id must be a positive integer');
+      }
+
+      const [rows] = await pool.query(
+        `SELECT ${ROLE_COLUMNS}
+        FROM roles
+        WHERE id = ?
+          AND deleted_at IS NULL
+        LIMIT 1`,
+        [id]
+      );
+
+      return rows[0] || null;
+    },
+
+    async create({ name, slug, description }, connection = pool) {
+      if (typeof name !== 'string' || name.trim() === '') {
+        throw new Error('name must be a non-empty string');
+      }
+      if (typeof slug !== 'string' || slug.trim() === '') {
+        throw new Error('slug must be a non-empty string');
+      }
+
+      const cleanName = name.trim();
+      const cleanSlug = slug.trim();
+      const cleanDescription = (description === undefined || description === null)
+        ? null
+        : (typeof description === 'string' ? description.trim() : null);
+
+      const uuid = randomUUID();
+
+      const [result] = await connection.query(
+        `INSERT INTO roles (uuid, name, slug, description, is_system_role)
+         VALUES (?, ?, ?, ?, 0)`,
+        [uuid, cleanName, cleanSlug, cleanDescription]
+      );
+
+      if (!result || !result.insertId) {
+        return null;
+      }
+
+      const [rows] = await connection.query(
+        `SELECT ${ROLE_COLUMNS}
+        FROM roles
+        WHERE id = ?
+        LIMIT 1`,
+        [result.insertId]
+      );
+
+      return rows[0] || null;
+    },
+
+    async update(id, patch, connection = pool) {
+      if (!Number.isInteger(id) || id <= 0) {
+        throw new Error('id must be a positive integer');
+      }
+      if (!patch || typeof patch !== 'object') {
+        throw new Error('patch must be an object');
+      }
+
+      const fields = [];
+      const params = [];
+
+      if (patch.name !== undefined) {
+        fields.push('name = ?');
+        params.push(patch.name);
+      }
+      if (patch.slug !== undefined) {
+        fields.push('slug = ?');
+        params.push(patch.slug);
+      }
+      if (patch.description !== undefined) {
+        fields.push('description = ?');
+        params.push(patch.description);
+      }
+
+      if (fields.length === 0) {
+        const [rows] = await connection.query(
+          `SELECT ${ROLE_COLUMNS}
+          FROM roles
+          WHERE id = ?
+            AND deleted_at IS NULL
+          LIMIT 1`,
+          [id]
+        );
+        return rows[0] || null;
+      }
+
+      params.push(id);
+      await connection.query(
+        `UPDATE roles
+         SET ${fields.join(', ')}
+         WHERE id = ?
+           AND deleted_at IS NULL`,
+        params
+      );
+
+      const [rows] = await connection.query(
+        `SELECT ${ROLE_COLUMNS}
+        FROM roles
+        WHERE id = ?
+          AND deleted_at IS NULL
+        LIMIT 1`,
+        [id]
+      );
+
+      return rows[0] || null;
+    },
+
+    async delete(id, connection = pool) {
+      if (!Number.isInteger(id) || id <= 0) {
+        throw new Error('id must be a positive integer');
+      }
+
+      const [result] = await connection.query(
+        `UPDATE roles
+         SET deleted_at = NOW()
+         WHERE id = ?
+           AND deleted_at IS NULL`,
+        [id]
+      );
+
+      return Boolean(result && result.affectedRows > 0);
+    },
+
+    // ------------------------------------------------------------------------
+    // NEW for Phase 3B-6 — Locking reads
+    // ------------------------------------------------------------------------
+
+    /**
+     * Lock a non-deleted role row by ID.
+     * Must be called inside an existing transaction.
+     *
+     * @param {number} id
+     * @param {import('mysql2/promise').Connection} connection
+     * @returns {Promise<Object|null>}
+     */
+    async findByIdForUpdate(id, connection = pool) {
+      if (!Number.isInteger(id) || id <= 0) {
+        throw new Error('id must be a positive integer');
+      }
+
+      const [rows] = await connection.query(
+        `SELECT ${ROLE_COLUMNS}
+        FROM roles
+        WHERE id = ?
+          AND deleted_at IS NULL
+        LIMIT 1
+        FOR UPDATE`,
+        [id]
+      );
+
+      return rows[0] || null;
+    },
+
+    /**
+     * Lock a non-deleted role row by slug.
+     * Must be called inside an existing transaction.
+     */
+    async findBySlugForUpdate(slug, connection = pool) {
+      if (typeof slug !== 'string' || slug.trim() === '') {
+        throw new Error('slug must be a non-empty string');
+      }
+
+      const cleanSlug = slug.trim();
+
+      const [rows] = await connection.query(
+        `SELECT ${ROLE_COLUMNS}
+        FROM roles
+        WHERE slug = ?
+          AND deleted_at IS NULL
+        LIMIT 1
+        FOR UPDATE`,
+        [cleanSlug]
+      );
+
+      return rows[0] || null;
+    },
+
+    /**
+     * Lock the caller's complete RBAC state inside the current transaction.
+     *
+     * Deterministic order:
+     *   1. admin_roles rows for the caller, ORDER BY role_id ASC
+     *   2. roles rows for those role IDs, ORDER BY id ASC
+     *   3. role_permissions rows for the active role IDs,
+     *      ORDER BY role_id ASC, permission_id ASC
+     *
+     * Deleted roles are ignored for effective authorization.
+     *
+
+========================================
+FILE: app/repositories/permission.repository.js
+========================================
+/**
+ * app/repositories/permission.repository.js
+ * Permission data access – read-only.
+ *
+ * This repository follows the project's existing factory/singleton pattern.
+ */
+
+import { getDbPool } from '../config/database.config.js';
+
+export function createPermissionRepository(pool = getDbPool()) {
+  return {
+    /**
+     * List all permissions.
+     * Note: the permissions table has no deleted_at column.
+     *
+     * @returns {Promise<Array>} Array of permission objects.
+     */
+    async findAll() {
+      const [rows] = await pool.query(
+        `SELECT
+          id,
+          uuid,
+          name,
+          slug,
+          description
+        FROM permissions
+        ORDER BY id ASC`
+      );
+      return rows;
+    },
+
+    /**
+     * Get a single permission by ID.
+     * Strict positive-integer validation.
+     *
+     * @param {number} id - Permission ID.
+     * @returns {Promise<Object|null>} Permission object or null if not found.
+     */
+    async findById(id) {
+      if (!Number.isInteger(id) || id <= 0) {
+        throw new Error('id must be a positive integer');
+      }
+
+      const [rows] = await pool.query(
+        `SELECT
+          id,
+          uuid,
+          name,
+          slug,
+          description
+        FROM permissions
+        WHERE id = ?
+        LIMIT 1`,
+        [id]
+      );
+
+      return rows[0] || null;
+    },
+  };
+}
+
+// Default singleton instance using the default database pool.
+export default createPermissionRepository();
+========================================
+FILE: app/services/auth/auth.service.js
+========================================
+/**
+ * app/services/auth/auth.service.js
+ * Authentication business logic – login, user validation.
+ */
+
+import { AuthenticationError } from '../../core/errors.js';
+import { createChildLogger } from '../../core/logger.js';
+import { USER_STATUS } from '../../core/constants.js';
+import userRepository from '../../repositories/user.repository.js';
+import { verifyPassword } from './password.service.js';
+
+const logger = createChildLogger({ module: 'auth-service' });
+
+// Only 'active' users are allowed to log in.
+const ALLOWED_LOGIN_STATUSES = new Set([USER_STATUS.ACTIVE]);
+
+export function createAuthService(userRepo = userRepository) {
+  return {
+    /**
+     * Authenticate a user with username/email and password.
+     * Returns the user object (without password_hash) on success.
+     * @throws {AuthenticationError} If credentials invalid or account not eligible.
+     */
+    async login(usernameOrEmail, password) {
+      if (!usernameOrEmail || !password) {
+        throw new AuthenticationError('Username/email and password are required');
+      }
+
+      // 1. Find user
+      const user = await userRepo.findByUsernameOrEmail(usernameOrEmail);
+      if (!user) {
+        throw new AuthenticationError('Invalid credentials');
+      }
+
+      // 2. Verify password
+      const isMatch = await verifyPassword(password, user.password_hash);
+      if (!isMatch) {
+        throw new AuthenticationError('Invalid credentials');
+      }
+
+      // 3. Check status
+      if (!ALLOWED_LOGIN_STATUSES.has(user.status)) {
+        logger.warn({ userId: user.id, status: user.status }, 'Login attempt with disallowed status');
+        throw new AuthenticationError('Account is not eligible for login');
+      }
+
+      // 4. Ensure not soft‑deleted (extra safety; query already excludes)
+      if (user.deleted_at) {
+        throw new AuthenticationError('Account no longer exists');
+      }
+
+      // 5. Remove sensitive data
+      const { password_hash, ...safeUser } = user;
+      logger.info({ userId: user.id }, 'User authenticated');
+      return safeUser;
+    },
+
+    /**
+     * Get authenticated user by ID, verifying status and not deleted.
+     * Used by authentication middleware to re‑validate a session.
+     */
+    async getAuthenticatedUser(userId) {
+      if (!userId) return null;
+      const user = await userRepo.findById(userId);
+      if (!user) return null;
+      if (user.deleted_at) return null;
+      if (!ALLOWED_LOGIN_STATUSES.has(user.status)) return null;
+      const { password_hash, ...safeUser } = user;
+      return safeUser;
+    },
+  };
+}
+
+export default createAuthService();
+========================================
+FILE: app/services/auth/rbac.service.js
+========================================
+/**
+ * app/services/auth/rbac.service.js
+ * RBAC business logic – permission checking, read-only foundation,
+ * role CRUD, and role ↔ permission management.
+ *
+ * This service is HTTP‑agnostic and does not access req/res/session.
+ */
+
+import { createChildLogger } from '../../core/logger.js';
+import {
+  AuthorizationError,
+  NotFoundError,
+  ValidationError,
+  ConflictError,
+} from '../../core/errors.js';
+import { withTransaction } from '../../core/transactions.js';
+import {
+  getRequestId,
+  getUserId,
+  getAdminId,
+} from '../../core/request-context.js';
+import roleRepository from '../../repositories/role.repository.js';
+import permissionRepository from '../../repositories/permission.repository.js';
+import rolePermissionRepository from '../../repositories/role-permission.repository.js';
+import auditRepository from '../../repositories/audit.repository.js';
+import securityRepository from '../../repositories/security.repository.js';
+
+const logger = createChildLogger({ module: 'rbac-service' });
+
+// ----------------------------------------------------------------------------
+// Internal helpers
+// ----------------------------------------------------------------------------
+
+/**
+ * Strictly normalize a numeric/string ID to a positive safe integer, or null.
+ * Accepts: numeric positive safe integer, or digit-only string.
+ * Rejects: empty, non-digits, decimals, zero, negatives, unsafe integers.
+ */
+function normalizePositiveId(rawId) {
+  let numId;
+
+  if (typeof rawId === 'string') {
+    if (!/^\d+$/.test(rawId)) {
+      return null;
+    }
+    numId = Number(rawId);
+  } else {
+    numId = rawId;
+  }
+
+  if (!Number.isSafeInteger(numId) || numId <= 0) {
+    return null;
+  }
+
+  return numId;
+}
+
+function snapshotRole(role) {
+  if (!role) return null;
+  return {
+    name: role.name,
+    slug: role.slug,
+    description: role.description,
+    is_system_role: Boolean(role.is_system_role),
+  };
+}
+
+// ----------------------------------------------------------------------------
+// Factory
+// ----------------------------------------------------------------------------
+
+export function createRbacService(
+  roleRepo = roleRepository,
+  permissionRepo = permissionRepository,
+  auditRepo = auditRepository,
+  securityRepo = securityRepository,
+  rolePermissionRepo = rolePermissionRepository
+) {
+  return {
+    /**
+     * Check if an admin has a specific permission.
+     */
+    async hasPermission(adminId, permissionSlug) {
+      if (!Number.isInteger(adminId) || adminId <= 0) {
+        throw new Error('adminId must be a positive integer');
+      }
+
+      if (typeof permissionSlug !== 'string') {
+        throw new Error('permissionSlug must be a string');
+      }
+      const trimmed = permissionSlug.trim();
+      if (trimmed === '') {
+        throw new Error('permissionSlug must be a non-empty string');
+      }
+
+      const result = await roleRepo.hasPermission(adminId, trimmed);
+
+      logger.debug({ adminId, permissionSlug: trimmed, result }, 'Permission checked');
+
+      return result;
+    },
+
+    /**
+     * List all non‑deleted roles.
+     */
+    async getRoles() {
+      return await roleRepo.findAll();
+    },
+
+    /**
+     * Get a single non‑deleted role by ID.
+     * Returns null for invalid or unknown IDs.
+     */
+    async getRole(id) {
+      const numId = normalizePositiveId(id);
+      if (numId === null) {
+        return null;
+      }
+      return await roleRepo.findById(numId);
+    },
+
+    /**
+     * List all permissions.
+     */
+    async getPermissions() {
+      return await permissionRepo.findAll();
+    },
+
+    // ------------------------------------------------------------------------
+    // Role CRUD (Phase 3B-5B)
+    // ------------------------------------------------------------------------
+
+    async createRole({ name, slug, description } = {}, actor = {}) {
+      if (typeof name !== 'string' || name.trim() === '') {
+        throw new ValidationError('name is required and must be a non-empty string');
+      }
+      if (typeof slug !== 'string' || slug.trim() === '') {
+        throw new ValidationError('slug is required and must be a non-empty string');
+      }
+      if (description !== undefined && description !== null && typeof description !== 'string') {
+        throw new ValidationError('description must be a string or null');
+      }
+
+      const cleanName = name.trim();
+      const cleanSlug = slug.trim();
+      const cleanDescription = (description === undefined || description === null)
+        ? null
+        : description.trim();
+
+      const requestId = getRequestId();
+      const actorUserId = actor.userId !== undefined ? actor.userId : getUserId();
+      const actorAdminId = actor.adminId !== undefined ? actor.adminId : getAdminId();
+
+      return await withTransaction(async (connection) => {
+        const role = await roleRepo.create(
+          { name: cleanName, slug: cleanSlug, description: cleanDescription },
+          connection
+        );
+
+        if (!role) {
+          throw new Error('Role creation failed');
+        }
+
+        await auditRepo.log(
+          {
+            action: 'create',
+            entityType: 'role',
+            entityId: role.id,
+            beforeData: null,
+            afterData: snapshotRole(role),
+            actorUserId,
+            actorAdminId,
+            requestId,
+          },
+          connection
+        );
+
+        return role;
+      });
+    },
+
+    async updateRole(id, patch = {}, actor = {}) {
+      const numId = normalizePositiveId(id);
+      if (numId === null) {
+        throw new NotFoundError('Role not found');
+      }
+
+      const existing = await roleRepo.findById(numId);
+      if (!existing) {
+        throw new NotFoundError('Role not found');
+      }
+
+      if (Boolean(existing.is_system_role)) {
+        try {
+          await securityRepo.logEvent({
+            userId: actor.userId !== undefined ? actor.userId : getUserId(),
+            eventType: 'role.system_role_tamper_attempt',
+            severity: 'high',
+            isSuccess: false,
+            requestId: getRequestId(),
+            metadata: {
+              roleId: numId,
+              roleSlug: existing.slug,
+              operation: 'update',
+            },
+          });
+        } catch (logError) {
+          logger.error(
+            { err: logError, roleId: numId },
+            'Failed to log system-role tamper attempt'
+          );
+        }
+        throw new AuthorizationError('System roles cannot be modified');
+      }
+
+      const cleanPatch = {};
+
+      if (patch.name !== undefined) {
+        if (typeof patch.name !== 'string' || patch.name.trim() === '') {
+          throw new ValidationError('name must be a non-empty string');
+        }
+        cleanPatch.name = patch.name.trim();
+      }
+
+      if (patch.slug !== undefined) {
+        if (typeof patch.slug !== 'string' || patch.slug.trim() === '') {
+          throw new ValidationError('slug must be a non-empty string');
+        }
+        cleanPatch.slug = patch.slug.trim();
+      }
+
+      if (patch.description !== undefined) {
+        if (patch.description !== null && typeof patch.description !== 'string') {
+          throw new ValidationError('description must be a string or null');
+        }
+        cleanPatch.description = (patch.description === null)
+          ? null
+          : patch.description.trim();
+      }
+
+      if (Object.keys(cleanPatch).length === 0) {
+        throw new ValidationError('At least one field must be provided');
+      }
+
+      const requestId = getRequestId();
+      const actorUserId = actor.userId !== undefined ? actor.userId : getUserId();
+      const actorAdminId = actor.adminId !== undefined ? actor.adminId : getAdminId();
+
+      return await withTransaction(async (connection) => {
+        const updated = await roleRepo.update(numId, cleanPatch, connection);
+        if (!updated) {
+          throw new NotFoundError('Role not found');
+        }
+
+        await auditRepo.log(
+          {
+            action: 'update',
+            entityType: 'role',
+            entityId: numId,
+            beforeData: snapshotRole(existing),
+
+========================================
+FILE: app/services/auth/session.service.js
+========================================
+/**
+ * app/services/auth/session.service.js
+ * Session lifecycle – hashing, creation, validation, revocation.
+ */
+
+import crypto from 'crypto';
+import sessionRepository from '../../repositories/session.repository.js';
+import { createChildLogger } from '../../core/logger.js';
+
+const logger = createChildLogger({ module: 'session-service' });
+
+/**
+ * Deterministic SHA‑256 hash of the raw Express session ID.
+ * @param {string} sessionId - Raw session ID from req.sessionID.
+ * @returns {string} 64‑character hex digest.
+ */
+export function hashSessionId(sessionId) {
+  if (typeof sessionId !== 'string' || sessionId.trim() === '') {
+    throw new Error('sessionId must be a non-empty string');
+  }
+  return crypto.createHash('sha256').update(sessionId).digest('hex');
+}
+
+export function createSessionService(repo = sessionRepository) {
+  return {
+    /**
+     * Create a database session record using a hashed session ID.
+     * @param {number} userId
+     * @param {string} hashedSessionId - Already hashed.
+     * @param {Date} expiresAt
+     */
+    async createSession(userId, hashedSessionId, expiresAt) {
+      if (!userId) throw new Error('userId is required');
+      if (!hashedSessionId) throw new Error('hashed session ID is required');
+      if (!(expiresAt instanceof Date)) throw new Error('expiresAt must be a Date');
+      await repo.createSession(userId, hashedSessionId, expiresAt);
+      logger.info({ userId }, 'Session record created');
+    },
+
+    /**
+     * Revoke a session by its hashed identifier.
+     * @param {string} hashedSessionId
+     */
+    async revokeSession(hashedSessionId) {
+      if (!hashedSessionId) throw new Error('hashed session ID is required');
+      await repo.revokeSession(hashedSessionId);
+      logger.info({}, 'Session revoked');
+    },
+
+    /**
+     * Validate a session: exists, belongs to user, not revoked, not expired.
+     * @param {string} hashedSessionId
+     * @param {number} userId
+     * @returns {Promise<{ valid: boolean, reason?: string }>}
+     */
+    async validateSession(hashedSessionId, userId) {
+      if (!hashedSessionId) throw new Error('hashed session ID is required');
+      if (!userId || !Number.isInteger(userId) || userId <= 0) {
+        throw new Error('userId must be a positive integer');
+      }
+      const record = await repo.findByHashedSessionId(hashedSessionId);
+      if (!record) {
+        return { valid: false, reason: 'not_found' };
+      }
+      if (record.user_id !== userId) {
+        return { valid: false, reason: 'wrong_user' };
+      }
+      if (record.revoked_at) {
+        return { valid: false, reason: 'revoked' };
+      }
+      if (record.expires_at && new Date(record.expires_at) < new Date()) {
+        return { valid: false, reason: 'expired' };
+      }
+      return { valid: true };
+    },
+  };
+}
+
+export default createSessionService();
+========================================
+FILE: app/middleware/authentication.js
+========================================
+/**
+ * app/middleware/authentication.js
+ * Express middleware to validate the session and attach req.user.
+ */
+
+import { AuthenticationError } from '../core/errors.js';
+import { createChildLogger } from '../core/logger.js';
+import { getRequestId, setUserContext } from '../core/request-context.js';
+import authService from '../services/auth/auth.service.js';
+import sessionService, { hashSessionId } from '../services/auth/session.service.js';
+
+const logger = createChildLogger({ module: 'authentication-middleware' });
+
+export async function authenticate(req, res, next) {
+  try {
+    const requestId = getRequestId() || req.id;
+
+    // 1. Require userId in session
+    const userId = req.session?.userId;
+    if (!userId) {
+      throw new AuthenticationError('Authentication required');
+    }
+
+    // 2. Require a session ID
+    const sessionId = req.sessionID;
+    if (!sessionId) {
+      throw new AuthenticationError('Authentication required');
+    }
+
+    // 3. Hash the session ID for database lookup
+    const hashedId = hashSessionId(sessionId);
+
+    // 4. Validate the database session
+    const validation = await sessionService.validateSession(hashedId, userId);
+    if (!validation.valid) {
+      // Destroy Express session on any validation failure
+      req.session.destroy(() => {});
+      throw new AuthenticationError('Invalid session');
+    }
+
+    // 5. Fetch and validate the user
+    const user = await authService.getAuthenticatedUser(userId);
+    if (!user) {
+      req.session.destroy(() => {});
+      throw new AuthenticationError('User no longer valid');
+    }
+
+    // 6. Attach user to request and set context
+    req.user = user;
+    setUserContext({
+      userId: user.id,
+      isAuthenticated: true,
+    });
+
+    logger.debug({ userId: user.id, requestId }, 'Authentication successful');
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
+export default authenticate;
+========================================
+FILE: app/middleware/authorization.js
+========================================
+/**
+ * app/middleware/authorization.js
+ * Admin authorization middleware – checks if the authenticated user is an active administrator.
+ *
+ * This middleware must be used AFTER the authentication middleware.
+ * It assumes req.user is set and contains the authenticated user's safe data.
+ */
+
+import { AuthenticationError, AuthorizationError } from '../core/errors.js';
+import { createChildLogger } from '../core/logger.js';
+import { getRequestId, setAdminContext } from '../core/request-context.js';
+import adminRepository from '../repositories/admin.repository.js';
+
+const logger = createChildLogger({ module: 'authorization-middleware' });
+
+/**
+ * Express middleware that authorizes admin access.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Next middleware.
+ */
+export async function authorizeAdmin(req, res, next) {
+  try {
+    const requestId = getRequestId() || req.id;
+
+    // 1. Ensure authentication middleware ran and attached a user
+    if (!req.user || !req.user.id) {
+      throw new AuthenticationError('Authentication required');
+    }
+
+    // 2. Look up the admin identity using the repository
+    const admin = await adminRepository.findActiveAdminByUserId(req.user.id);
+
+    // 3. If no active admin record, deny access
+    if (!admin) {
+      throw new AuthorizationError('Admin access required');
+    }
+
+    // 4. Attach the trusted admin identity to the request
+    req.admin = admin; // { admin_id, user_id, admin_status }
+
+    // 5. Update the request context for logging (optional)
+    setAdminContext(admin.admin_id, {
+      userId: req.user.id,
+      // Extras can be added if needed
+    });
+
+    logger.debug({ userId: req.user.id, adminId: admin.admin_id, requestId }, 'Admin authorization successful');
+
+    // 6. Continue to the admin route handler
+    next();
+  } catch (err) {
+    // Pass errors to the central error handler
+    next(err);
+  }
+}
+
+export default authorizeAdmin;
+========================================
+FILE: app/middleware/rbac.js
+========================================
+/**
+ * app/middleware/rbac.js
+ * Express middleware to enforce permission checks.
+ *
+ * This middleware must be used AFTER authentication and admin authorization,
+ * i.e., after req.admin has been set.
+ */
+
+import { AuthenticationError, AuthorizationError } from '../core/errors.js';
+import { createChildLogger } from '../core/logger.js';
+import { getRequestId } from '../core/request-context.js';
+import rbacService from '../services/auth/rbac.service.js';
+
+const logger = createChildLogger({ module: 'rbac-middleware' });
+
+/**
+ * Factory that returns an Express middleware function.
+ * The middleware checks if the authenticated admin has the specified permission.
+ *
+ * @param {string} permissionSlug - The permission slug required for the route.
+ * @returns {Function} Express middleware.
+ */
+export function authorizePermission(permissionSlug) {
+  // Normalize permission slug at factory creation time
+  if (typeof permissionSlug !== 'string') {
+    throw new Error('permissionSlug must be a string');
+  }
+  const trimmedSlug = permissionSlug.trim();
+  if (trimmedSlug === '') {
+    throw new Error('permissionSlug must be a non-empty string');
+  }
+
+  return async (req, res, next) => {
+    try {
+      const requestId = getRequestId() || req.id;
+
+      // 1. Ensure admin authorization middleware ran and attached req.admin
+      if (!req.admin || !req.admin.admin_id) {
+        throw new AuthenticationError('Authentication required');
+      }
+
+      const adminId = req.admin.admin_id;
+
+      // 2. Check permission (trimmed slug is already stored)
+      const hasPermission = await rbacService.hasPermission(adminId, trimmedSlug);
+
+      if (!hasPermission) {
+        // Fail‑closed: deny access without revealing why.
+        throw new AuthorizationError('Insufficient permissions');
+      }
+
+      // 3. Log and continue
+      logger.debug({ adminId, permissionSlug: trimmedSlug, requestId }, 'Permission granted');
+      next();
+    } catch (err) {
+      // Propagate errors to the central error handler.
+      next(err);
+    }
+  };
+}
+
+// Add default export to support both named and default imports.
+export default authorizePermission;
+========================================
+FILE: app/routes/auth.routes.js
+========================================
+/**
+ * app/routes/auth.routes.js
+ * Authentication endpoints – login, logout.
+ */
+
+import express from 'express';
+import { sendSuccess, sendError } from '../core/response.js';
+import { HTTP_STATUS } from '../core/constants.js';
+import { createChildLogger } from '../core/logger.js';
+import { getRequestId } from '../core/request-context.js';
+import authService from '../services/auth/auth.service.js';
+import sessionService, { hashSessionId } from '../services/auth/session.service.js';
+
+const router = express.Router();
+const logger = createChildLogger({ module: 'auth-routes' });
+
+/**
+ * POST /login
+ * Authenticate user and create a secure session.
+ */
+router.post('/login', async (req, res, next) => {
+  try {
+    const { username, email, password } = req.body;
+    const identifier = username || email;
+    if (!identifier || !password) {
+      return sendError(res, new Error('Username/email and password required'), {
+        statusCode: HTTP_STATUS.BAD_REQUEST,
+        message: 'Username/email and password are required',
+      });
+    }
+
+    // 1. Authenticate user (throws on failure)
+    const user = await authService.login(identifier, password);
+
+    // 2. Regenerate session to prevent fixation
+    req.session.regenerate(async (regenerateErr) => {
+      if (regenerateErr) {
+        logger.error({ err: regenerateErr, requestId: getRequestId() }, 'Session regeneration failed');
+        return next(regenerateErr);
+      }
+
+      // 3. Get the NEW session ID
+      const newSessionId = req.sessionID;
+
+      // 4. Store userId in new session
+      req.session.userId = user.id;
+
+      // 5. Determine expiry
+      const expiresAt = req.session.cookie?.expires
+        ? new Date(req.session.cookie.expires)
+        : new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+      // 6. Hash the new session ID and create DB session record
+      const hashedId = hashSessionId(newSessionId);
+
+      try {
+        await sessionService.createSession(user.id, hashedId, expiresAt);
+      } catch (dbError) {
+        // DB creation failed – destroy Express session and return error
+        req.session.destroy(() => {});
+        logger.error({ err: dbError, requestId: getRequestId() }, 'Failed to create DB session');
+        return next(dbError);
+      }
+
+      // 7. Save Express session – if this fails, clean up the DB session
+      req.session.save(async (saveErr) => {
+        if (saveErr) {
+          // Revoke the DB session we just created
+          try {
+            await sessionService.revokeSession(hashedId);
+          } catch (cleanupErr) {
+            logger.error({ err: cleanupErr, requestId: getRequestId() }, 'DB session cleanup failed');
+          }
+          req.session.destroy(() => {});
+          logger.error({ err: saveErr, requestId: getRequestId() }, 'Session save failed');
+          return next(saveErr);
+        }
+
+        // 8. Success – send user (without password hash)
+        const { password_hash, ...safeUser } = user;
+        sendSuccess(res, {
+          data: { user: safeUser },
+          message: 'Login successful',
+        });
+      });
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /logout
+ * Revoke the database session and destroy the Express session.
+ */
+router.post('/logout', async (req, res, next) => {
+  try {
+    const sessionId = req.sessionID;
+    if (!sessionId) {
+      return sendError(res, new Error('No active session'), {
+        statusCode: HTTP_STATUS.BAD_REQUEST,
+        message: 'No active session',
+      });
+    }
+
+    const hashedId = hashSessionId(sessionId);
+
+    // Attempt DB revocation – log failure but continue
+    try {
+      await sessionService.revokeSession(hashedId);
+    } catch (dbError) {
+      logger.error({ err: dbError, requestId: getRequestId() }, 'DB revocation failed during logout');
+    }
+
+    // Always destroy the Express session
+    req.session.destroy((destroyErr) => {
+      if (destroyErr) {
+        logger.error({ err: destroyErr, requestId: getRequestId() }, 'Session destroy failed');
+        return next(destroyErr);
+      }
+      sendSuccess(res, { message: 'Logged out successfully' });
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+export default router;
+export { router };
+========================================
+FILE: app/routes/admin.routes.js
+========================================
+/**
+ * app/routes/admin.routes.js
+ * Admin route composition layer for Tesnow
+ * Protected administrative routes for content, user, and system management
+ *
+ * @module routes/admin.routes
+ */
+
+import express from 'express';
+import { sendSuccess, sendError } from '../core/response.js';
+import { HTTP_STATUS } from '../core/constants.js';
+import authenticate from '../middleware/authentication.js';
+import authorizeAdmin from '../middleware/authorization.js';
+import authorizePermission from '../middleware/rbac.js';
+import {
+  listRoles,
+  getRole,
+  createRole,
+  updateRole,
+  deleteRole,
+  listRolePermissions,
+  grantPermissionToRole,
+  revokePermissionFromRole,
+} from '../controllers/admin/role.controller.js';
+import { listPermissions } from '../controllers/admin/permission.controller.js';
+
+const router = express.Router();
+
+// Protect all admin routes with authentication + authorization
+router.use(authenticate);
+router.use(authorizeAdmin);
+
+// ============================================================================
+// DASHBOARD ROUTES
+// ============================================================================
+
+/**
+ * GET /
+ * Admin dashboard overview
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  '/',
+  authorizePermission('dashboard.read'),
+  async (req, res, next) => {
+    sendError(res, new Error('Admin dashboard not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Admin dashboard is under development',
+    });
+  }
+);
+
+// ============================================================================
+// POST MANAGEMENT ROUTES
+// ============================================================================
+
+/**
+ * GET /posts
+ * List all posts (with filtering, pagination)
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  '/posts',
+  authorizePermission('post.read'),
+  async (req, res, next) => {
+    sendError(res, new Error('Get admin posts list not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Admin posts list endpoint is under development',
+    });
+  }
+);
+
+/**
+ * GET /posts/new
+ * Render or prepare new post form
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  '/posts/new',
+  authorizePermission('post.create'),
+  async (req, res, next) => {
+    sendError(res, new Error('New post form not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'New post form is under development',
+    });
+  }
+);
+
+/**
+ * GET /posts/:id
+ * Get a single post (admin view)
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  '/posts/:id',
+  authorizePermission('post.read'),
+  async (req, res, next) => {
+    sendError(res, new Error('Get admin post not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Admin post endpoint is under development',
+    });
+  }
+);
+
+/**
+ * GET /posts/:id/edit
+ * Render or prepare edit post form
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  '/posts/:id/edit',
+  authorizePermission('post.update'),
+  async (req, res, next) => {
+    sendError(res, new Error('Edit post form not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Edit post form is under development',
+    });
+  }
+);
+
+/**
+ * GET /posts/:id/revisions
+ * List revisions for a post
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  '/posts/:id/revisions',
+  authorizePermission('post.read'),
+  async (req, res, next) => {
+    sendError(res, new Error('Get post revisions not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Post revisions endpoint is under development',
+    });
+  }
+);
+
+/**
+ * GET /posts/:id/revisions/:revisionId
+ * Get a specific revision
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  '/posts/:id/revisions/:revisionId',
+  authorizePermission('post.read'),
+  async (req, res, next) => {
+    sendError(res, new Error('Get revision not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Post revision endpoint is under development',
+    });
+  }
+);
+
+/**
+ * POST /posts
+ * Create a new post
+ * Future: authentication, admin authorization, validation, CSRF, controller
+ */
+router.post(
+  '/posts',
+  authorizePermission('post.create'),
+  async (req, res, next) => {
+    sendError(res, new Error('Create post not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Create post endpoint is under development',
+    });
+  }
+);
+
+/**
+ * PATCH /posts/:id
+ * Update a post
+ * Future: authentication, admin authorization, validation, CSRF, controller
+ */
+router.patch(
+  '/posts/:id',
+  authorizePermission('post.update'),
+  async (req, res, next) => {
+    sendError(res, new Error('Update post not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Update post endpoint is under development',
+    });
+  }
+);
+
+/**
+ * DELETE /posts/:id
+ * Move post to trash
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.delete(
+  '/posts/:id',
+  authorizePermission('post.delete'),
+  async (req, res, next) => {
+    sendError(res, new Error('Trash post not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Trash post endpoint is under development',
+    });
+  }
+);
+
+/**
+ * DELETE /posts/:id/permanent
+ * Permanently delete a post
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.delete(
+  '/posts/:id/permanent',
+  authorizePermission('post.delete'),
+  async (req, res, next) => {
+    sendError(res, new Error('Permanent delete post not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Permanent delete post endpoint is under development',
+    });
+  }
+);
+
+/**
+ * POST /posts/:id/publish
+ * Publish a post
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.post(
+  '/posts/:id/publish',
+  authorizePermission('post.publish'),
+  async (req, res, next) => {
+    sendError(res, new Error('Publish post not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Publish post endpoint is under development',
+    });
+  }
+);
+
+/**
+ * POST /posts/:id/unpublish
+ * Unpublish a post
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.post(
+  '/posts/:id/unpublish',
+  authorizePermission('post.publish'),
+  async (req, res, next) => {
+    sendError(res, new Error('Unpublish post not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Unpublish post endpoint is under development',
+    });
+  }
+);
+
+/**
+ * POST /posts/:id/schedule
+ * Schedule a post
+ * Future: authentication, admin authorization, validation, CSRF, controller
+ */
+router.post(
+  '/posts/:id/schedule',
+  authorizePermission('post.schedule'),
+  async (req, res, next) => {
+    sendError(res, new Error('Schedule post not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Schedule post endpoint is under development',
+
+========================================
+FILE: database/migrations/001_create_users.sql
+========================================
+-- ============================================================
+-- TESNOW
+-- 001_create_users.sql
+-- Core application users
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS users (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+
+    uuid CHAR(36) NOT NULL,
+
+    username VARCHAR(50) NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+
+    first_name VARCHAR(100) NULL,
+    last_name VARCHAR(100) NULL,
+
+    avatar_url VARCHAR(2048) NULL,
+    bio VARCHAR(1000) NULL,
+
+    status ENUM(
+        'active',
+        'inactive',
+        'suspended',
+        'banned',
+        'pending'
+    ) NOT NULL DEFAULT 'active',
+
+    email_verified_at DATETIME NULL,
+    last_login_at DATETIME NULL,
+
+    failed_login_attempts SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    locked_until DATETIME NULL,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+
+    deleted_at DATETIME NULL,
+
+    PRIMARY KEY (id),
+
+    UNIQUE KEY uq_users_uuid (uuid),
+    UNIQUE KEY uq_users_username (username),
+    UNIQUE KEY uq_users_email (email),
+
+    KEY idx_users_status (status),
+    KEY idx_users_email_verified (email_verified_at),
+    KEY idx_users_last_login (last_login_at),
+    KEY idx_users_deleted_at (deleted_at),
+
+    CONSTRAINT chk_users_username_length
+        CHECK (CHAR_LENGTH(username) BETWEEN 3 AND 50),
+
+    CONSTRAINT chk_users_email_length
+        CHECK (CHAR_LENGTH(email) BETWEEN 5 AND 255),
+
+    CONSTRAINT chk_users_failed_login
+        CHECK (failed_login_attempts >= 0)
+
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
+========================================
+FILE: database/migrations/002_create_admins.sql
+========================================
+-- ============================================================
+-- TESNOW
+-- 002_create_admins.sql
+-- Administrative accounts
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS admins (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+
+    user_id BIGINT UNSIGNED NOT NULL,
+
+    admin_uuid CHAR(36) NOT NULL,
+
+    status ENUM(
+        'active',
+        'inactive',
+        'suspended'
+    ) NOT NULL DEFAULT 'active',
+
+    two_factor_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+
+    two_factor_secret_encrypted VARBINARY(512) NULL,
+
+    last_admin_login_at DATETIME NULL,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+
+    deleted_at DATETIME NULL,
+
+    PRIMARY KEY (id),
+
+    UNIQUE KEY uq_admins_user_id (user_id),
+    UNIQUE KEY uq_admins_uuid (admin_uuid),
+
+    KEY idx_admins_status (status),
+    KEY idx_admins_deleted_at (deleted_at),
+
+    CONSTRAINT fk_admins_user
+        FOREIGN KEY (user_id)
+        REFERENCES users(id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT
+
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
+========================================
+FILE: database/migrations/003_create_roles.sql
+========================================
+-- ============================================================
+-- TESNOW
+-- 003_create_roles.sql
+-- Role-based access control
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS roles (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+
+    uuid CHAR(36) NOT NULL,
+
+    name VARCHAR(100) NOT NULL,
+    slug VARCHAR(100) NOT NULL,
+
+    description VARCHAR(500) NULL,
+
+    is_system_role BOOLEAN NOT NULL DEFAULT FALSE,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+
+    deleted_at DATETIME NULL,
+
+    PRIMARY KEY (id),
+
+    UNIQUE KEY uq_roles_uuid (uuid),
+    UNIQUE KEY uq_roles_name (name),
+    UNIQUE KEY uq_roles_slug (slug),
+
+    KEY idx_roles_system (is_system_role),
+    KEY idx_roles_deleted_at (deleted_at)
+
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
+========================================
+FILE: database/migrations/004_create_permissions.sql
+========================================
+-- ============================================================
+-- TESNOW
+-- 004_create_permissions.sql
+-- Fine-grained permission system
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS permissions (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+
+    uuid CHAR(36) NOT NULL,
+
+    name VARCHAR(150) NOT NULL,
+    slug VARCHAR(150) NOT NULL,
+
+    description VARCHAR(500) NULL,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+
+    UNIQUE KEY uq_permissions_uuid (uuid),
+    UNIQUE KEY uq_permissions_name (name),
+    UNIQUE KEY uq_permissions_slug (slug)
+
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
+
+
+-- ============================================================
+-- ROLE ↔ PERMISSION
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS role_permissions (
+    role_id BIGINT UNSIGNED NOT NULL,
+    permission_id BIGINT UNSIGNED NOT NULL,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (role_id, permission_id),
+
+    KEY idx_role_permissions_permission
+        (permission_id),
+
+    CONSTRAINT fk_role_permissions_role
+        FOREIGN KEY (role_id)
+        REFERENCES roles(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_role_permissions_permission
+        FOREIGN KEY (permission_id)
+        REFERENCES permissions(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
+========================================
+FILE: database/migrations/015_create_sessions.sql
+========================================
+-- Migration: 015_create_sessions
+-- Description: Creates secure application session storage. No raw tokens/IPs are stored, only hashes.
+-- Engine: InnoDB | Charset: utf8mb4
+
+-- ============================================================
+-- UP MIGRATION
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS sessions (
+    id                 BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    session_identifier CHAR(64) NOT NULL,
+    user_id            BIGINT UNSIGNED DEFAULT NULL,
+    session_token_hash CHAR(64) NOT NULL,
+    ip_hash            CHAR(64) DEFAULT NULL,
+    user_agent_hash    CHAR(64) DEFAULT NULL,
+    device_type        VARCHAR(64) DEFAULT NULL,
+    device_name        VARCHAR(128) DEFAULT NULL,
+    platform           VARCHAR(64) DEFAULT NULL,
+    is_remember_me     TINYINT(1) NOT NULL DEFAULT 0,
+    created_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_activity_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    expires_at         DATETIME NOT NULL,
+    revoked_at         DATETIME DEFAULT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_sessions_session_identifier (session_identifier),
+    CONSTRAINT fk_sessions_user_id
+        FOREIGN KEY (user_id) REFERENCES users (id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+    CONSTRAINT chk_sessions_expires_after_created
+        CHECK (expires_at > created_at),
+    INDEX idx_sessions_user_id (user_id),
+    INDEX idx_sessions_active (user_id, revoked_at, expires_at),
+    INDEX idx_sessions_expiration_cleanup (expires_at),
+    INDEX idx_sessions_token_hash (session_token_hash),
+    INDEX idx_sessions_last_activity (last_activity_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- ROLLBACK
+-- ============================================================
+-- DROP TABLE IF EXISTS sessions;

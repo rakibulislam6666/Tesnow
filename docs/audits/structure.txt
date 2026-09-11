@@ -1,0 +1,790 @@
+TESNOW/
+│
+├── .env
+├── .env.example
+├── .gitignore
+├── .editorconfig
+├── .prettierrc
+├── eslint.config.js
+├── package.json
+├── package-lock.json
+├── README.md
+├── CHANGELOG.md
+├── LICENSE
+│
+├── server.js
+│
+├── ecosystem.config.js
+│
+├── docker-compose.yml
+├── Dockerfile
+│
+├── .github/
+│   └── workflows/
+│       ├── test.yml
+│       ├── security.yml
+│       └── deploy.yml
+│
+│
+├── app/
+│   │
+│   ├── config/
+│   │   ├── app.config.js
+│   │   ├── database.config.js
+│   │   ├── security.config.js
+│   │   ├── session.config.js
+│   │   ├── email.config.js
+│   │   ├── storage.config.js
+│   │   ├── cache.config.js
+│   │   ├── api.config.js
+│   │   ├── seo.config.js
+│   │   ├── analytics.config.js
+│   │   ├── upload.config.js
+│   │   ├── queue.config.js
+│   │   ├── monitoring.config.js
+│   │   ├── oauth.config.js
+│   │   ├── payment.config.js
+│   │   └── feature-flags.config.js
+│   │
+│   ├── core/
+│   │   ├── app.js
+│   │   ├── container.js
+│   │   ├── constants.js
+│   │   ├── events.js
+│   │   ├── errors.js
+│   │   ├── logger.js
+│   │   ├── request-context.js
+│   │   ├── response.js
+│   │   ├── pagination.js
+│   │   ├── transactions.js
+│   │   ├── feature-flags.js
+│   │   └── shutdown.js
+│   │
+│   ├── controllers/
+│   │   ├──admin/
+│   │   │   ├── dashboard.controller.js
+│   │   │   ├── post.controller.js
+│   │   │   ├── category.controller.js
+│   │   │   ├── tag.controller.js
+│   │   │   ├── media.controller.js
+│   │   │   ├── comment.controller.js
+│   │   │   ├── user.controller.js
+│   │   │   ├── user-post.controller.js
+│   │   │   ├── report.controller.js
+│   │   │   ├── notification.controller.js
+│   │   │   ├── analytics.controller.js
+│   │   │   ├── security.controller.js
+│   │   │   ├── session.controller.js
+│   │   │   ├── admin.controller.js
+│   │   │   ├── role.controller.js
+│   │   │   ├── permission.controller.js
+│   │   │   ├── audit-log.controller.js
+│   │   │   ├── contact-message.controller.js
+│   │   │   ├── newsletter.controller.js
+│   │   │   ├── seo.controller.js
+│   │   │   ├── redirect.controller.js
+│   │   │   ├── settings.controller.js
+│   │   │   ├── feature-flag.controller.js
+│   │   │   ├── backup.controller.js
+│   │   │   ├── system.controller.js
+│   │   │   └── integration.controller.js
+│   │   │   
+│   │   ├── home.controller.js
+│   │   ├── post.controller.js
+│   │   ├── category.controller.js
+│   │   ├── tag.controller.js
+│   │   ├── search.controller.js
+│   │   ├── author.controller.js
+│   │   ├── contact.controller.js
+│   │   ├── newsletter.controller.js
+│   │   ├── legal.controller.js
+│   │   └── health.controller.js
+│   │
+│   ├── models/
+│   │   ├── User.js
+│   │   ├── Admin.js
+│   │   ├── Role.js
+│   │   ├── Permission.js
+│   │   ├── Post.js
+│   │   ├── PostRevision.js
+│   │   ├── Category.js
+│   │   ├── Tag.js
+│   │   ├── Media.js
+│   │   ├── Comment.js
+│   │   ├── Like.js
+│   │   ├── Bookmark.js
+│   │   ├── Notification.js
+│   │   ├── Report.js
+│   │   ├── Session.js
+│   │   ├── LoginAttempt.js
+│   │   ├── SecurityEvent.js
+│   │   ├── AuditLog.js
+│   │   ├── ContactMessage.js
+│   │   ├── NewsletterSubscriber.js
+│   │   ├── Setting.js
+│   │   ├── Redirect.js
+│   │   ├── Webhook.js
+│   │   ├── ApiKey.js
+│   │   └── FeatureFlag.js
+│   │
+│   ├── repositories/
+│   │   ├── user.repository.js
+│   │   ├── admin.repository.js
+│   │   ├── post.repository.js
+│   │   ├── category.repository.js
+│   │   ├── tag.repository.js
+│   │   ├── media.repository.js
+│   │   ├── comment.repository.js
+│   │   ├── notification.repository.js
+│   │   ├── analytics.repository.js
+│   │   ├── security.repository.js
+│   │   ├── audit.repository.js
+│   │   ├── settings.repository.js
+│   │   └── api.repository.js
+│   │
+│   ├── services/
+│   │   │
+│   │   ├── auth/
+│   │   │   ├── auth.service.js
+│   │   │   ├── password.service.js
+│   │   │   ├── session.service.js
+│   │   │   ├── email-verification.service.js
+│   │   │   ├── password-reset.service.js
+│   │   │   ├── two-factor.service.js
+│   │   │   ├── webauthn.service.js
+│   │   │   ├── recovery-code.service.js
+│   │   │   └── oauth.service.js
+│   │   │
+│   │   ├── posts/
+│   │   │   ├── post.service.js
+│   │   │   ├── publishing.service.js
+│   │   │   ├── revision.service.js
+│   │   │   ├── autosave.service.js
+│   │   │   ├── scheduling.service.js
+│   │   │   ├── slug.service.js
+│   │   │   ├── redirect.service.js
+│   │   │   ├── content-lock.service.js
+│   │   │   ├── content-validation.service.js
+│   │   │   └── content-quality.service.js
+│   │   │
+│   │   ├── users/
+│   │   │   ├── user.service.js
+│   │   │   ├── profile.service.js
+│   │   │   ├── user-post.service.js
+│   │   │   ├── moderation.service.js
+│   │   │   ├── suspension.service.js
+│   │   │   └── data-rights.service.js
+│   │   │
+│   │   ├── media/
+│   │   │   ├── media.service.js
+│   │   │   ├── upload.service.js
+│   │   │   ├── image.service.js
+│   │   │   ├── thumbnail.service.js
+│   │   │   ├── optimization.service.js
+│   │   │   ├── metadata.service.js
+│   │   │   ├── quarantine.service.js
+│   │   │   └── orphan-cleanup.service.js
+│   │   │
+│   │   ├── search/
+│   │   │   ├── search.service.js
+│   │   │   ├── indexing.service.js
+│   │   │   ├── suggestion.service.js
+│   │   │   └── rebuild-index.service.js
+│   │   │
+│   │   ├── seo/
+│   │   │   ├── seo.service.js
+│   │   │   ├── sitemap.service.js
+│   │   │   ├── schema.service.js
+│   │   │   ├── redirect.service.js
+│   │   │   ├── seo-health.service.js
+│   │   │   └── broken-link.service.js
+│   │   │
+│   │   ├── analytics/
+│   │   │   ├── analytics.service.js
+│   │   │   ├── event.service.js
+│   │   │   ├── view-counter.service.js
+│   │   │   ├── traffic.service.js
+│   │   │   └── analytics-export.service.js
+│   │   │
+│   │   ├── comments/
+│   │   │   ├── comment.service.js
+│   │   │   ├── moderation.service.js
+│   │   │   └── spam.service.js
+│   │   │
+│   │   ├── notifications/
+│   │   │   ├── notification.service.js
+│   │   │   ├── preference.service.js
+│   │   │   └── push.service.js
+│   │   │
+│   │   ├── email/
+│   │   │   ├── email.service.js
+│   │   │   ├── queue.service.js
+│   │   │   ├── retry.service.js
+│   │   │   └── template.service.js
+│   │   │
+│   │   ├── security/
+│   │   │   ├── security.service.js
+│   │   │   ├── anomaly.service.js
+│   │   │   ├── incident.service.js
+│   │   │   ├── ip.service.js
+│   │   │   ├── brute-force.service.js
+│   │   │   └── admin-lock.service.js
+│   │   │
+│   │   ├── backup/
+│   │   │   ├── backup.service.js
+│   │   │   ├── restore.service.js
+│   │   │   ├── verification.service.js
+│   │   │   └── encryption.service.js
+│   │   │
+│   │   ├── integrations/
+│   │   │   ├── storage.provider.js
+│   │   │   ├── email.provider.js
+│   │   │   ├── analytics.provider.js
+│   │   │   ├── oauth.provider.js
+│   │   │   ├── payment.provider.js
+│   │   │   └── captcha.provider.js
+│   │   │
+│   │   └── system/
+│   │       ├── health.service.js
+│   │       ├── metrics.service.js
+│   │       ├── maintenance.service.js
+│   │       ├── cache.service.js
+│   │       └── system-status.service.js
+│   │
+│   ├── middleware/
+│   │   ├── authentication.js
+│   │   ├── authorization.js
+│   │   ├── rbac.js
+│   │   ├── abac.js
+│   │   ├── csrf.js
+│   │   ├── rate-limit.js
+│   │   ├── security-headers.js
+│   │   ├── cors.js
+│   │   ├── validation.js
+│   │   ├── sanitization.js
+│   │   ├── upload-security.js
+│   │   ├── bot-protection.js
+│   │   ├── request-id.js
+│   │   ├── timeout.js
+│   │   ├── cache-control.js
+│   │   ├── error-handler.js
+│   │   ├── not-found.js
+│   │   └── maintenance.js
+│   │
+│   ├── validators/
+│   │   ├── auth.validator.js
+│   │   ├── user.validator.js
+│   │   ├── post.validator.js
+│   │   ├── category.validator.js
+│   │   ├── comment.validator.js
+│   │   ├── media.validator.js
+│   │   ├── search.validator.js
+│   │   ├── contact.validator.js
+│   │   ├── api.validator.js
+│   │   └── settings.validator.js
+│   │
+│   ├── helpers/
+│   │   ├── slug.helper.js
+│   │   ├── date.helper.js
+│   │   ├── pagination.helper.js
+│   │   ├── sanitize.helper.js
+│   │   ├── hash.helper.js
+│   │   ├── token.helper.js
+│   │   ├── url.helper.js
+│   │   ├── seo.helper.js
+│   │   └── file.helper.js
+│   │
+│   └── routes/
+│       ├── index.routes.js
+│       ├── public.routes.js
+│       ├── auth.routes.js
+│       ├── user.routes.js
+│       ├── admin.routes.js
+│       ├── api.routes.js
+│       └── system.routes.js
+│
+│
+├── views/
+│   │
+│   ├── layouts/
+│   │   ├── main.ejs
+│   │   ├── admin.ejs
+│   │   ├── auth.ejs
+│   │   └── error.ejs
+│   │
+│   ├── partials/
+│   │   ├── header.ejs
+│   │   ├── footer.ejs
+│   │   ├── navbar.ejs
+│   │   ├── breadcrumbs.ejs
+│   │   ├── pagination.ejs
+│   │   ├── alerts.ejs
+│   │   ├── modal.ejs
+│   │   └── cookie-consent.ejs
+│   │
+│   └── pages/
+│       │
+│       ├── home/
+│       │   └── index.ejs
+│       │
+│       ├── post/
+│       │   └── index.ejs
+│       │
+│       ├── category/
+│       │   └── index.ejs
+│       │
+│       ├── tag/
+│       │   └── index.ejs
+│       │
+│       ├── search/
+│       │   └── index.ejs
+│       │
+│       ├── author/
+│       │   └── index.ejs
+│       │
+│       ├── about/
+│       │   └── index.ejs
+│       │
+│       ├── contact/
+│       │   └── index.ejs
+│       │
+│       ├── newsletter/
+│       │   └── index.ejs
+│       │
+│       ├── legal/
+│       │   ├── privacy.ejs
+│       │   ├── terms.ejs
+│       │   ├── disclaimer.ejs
+│       │   ├── cookies.ejs
+│       │   └── copyright.ejs
+│       │
+│       └── errors/
+│           ├── 400.ejs
+│           ├── 401.ejs
+│           ├── 403.ejs
+│           ├── 404.ejs
+│           ├── 429.ejs
+│           └── 500.ejs
+│
+│
+├── public/
+│   │
+│   ├── assets/
+│   │   │
+│   │   ├── css/
+│   │   │   ├── base/
+│   │   │   │   ├── variables.css
+│   │   │   │   ├── reset.css
+│   │   │   │   ├── typography.css
+│   │   │   │   └── accessibility.css
+│   │   │   │
+│   │   │   ├── components/
+│   │   │   │   ├── buttons.css
+│   │   │   │   ├── cards.css
+│   │   │   │   ├── forms.css
+│   │   │   │   ├── modals.css
+│   │   │   │   ├── alerts.css
+│   │   │   │   ├── loaders.css
+│   │   │   │   ├── empty-states.css
+│   │   │   │   └── pagination.css
+│   │   │   │
+│   │   │   └── pages/
+│   │   │       ├── home.css
+│   │   │       ├── post.css
+│   │   │       ├── category.css
+│   │   │       ├── tag.css
+│   │   │       ├── search.css
+│   │   │       ├── author.css
+│   │   │       ├── about.css
+│   │   │       ├── contact.css
+│   │   │       ├── newsletter.css
+│   │   │       ├── legal.css
+│   │   │       └── errors.css
+│   │   │
+│   │   ├── js/
+│   │   │   ├── core/
+│   │   │   │   ├── app.js
+│   │   │   │   ├── accessibility.js
+│   │   │   │   ├── theme.js
+│   │   │   │   ├── modal.js
+│   │   │   │   ├── toast.js
+│   │   │   │   └── cookie-consent.js
+│   │   │   │
+│   │   │   └── pages/
+│   │   │       ├── home.js
+│   │   │       ├── post.js
+│   │   │       ├── category.js
+│   │   │       ├── tag.js
+│   │   │       ├── search.js
+│   │   │       ├── author.js
+│   │   │       ├── about.js
+│   │   │       ├── contact.js
+│   │   │       ├── newsletter.js
+│   │   │       └── legal.js
+│   │   │
+│   │   ├── images/
+│   │   ├── icons/
+│   │   ├── fonts/
+│   │   └── vendor/
+│   │
+│   ├── manifest.webmanifest
+│   ├── robots.txt
+│   ├── favicon.ico
+│   └── sw.js
+│
+│
+├── admin/
+│   │
+│   ├── login/
+│   │   ├── login.ejs
+│   │   ├── login.css
+│   │   └── login.js
+│   │
+│   ├── dashboard/
+│   │   ├── dashboard.ejs
+│   │   ├── dashboard.css
+│   │   └── dashboard.js
+│   │
+│   ├── posts/
+│   │   ├── all/
+│   │   │   ├── all.ejs
+│   │   │   ├── all.css
+│   │   │   └── all.js
+│   │   ├── new/
+│   │   │   ├── new.ejs
+│   │   │   ├── new.css
+│   │   │   └── new.js
+│   │   ├── edit/
+│   │   │   ├── edit.ejs
+│   │   │   ├── edit.css
+│   │   │   └── edit.js
+│   │   ├── drafts/
+│   │   ├── scheduled/
+│   │   ├── published/
+│   │   ├── revisions/
+│   │   └── trash/
+│   │
+│   ├── categories/
+│   ├── tags/
+│   ├── media/
+│   ├── comments/
+│   ├── users/
+│   ├── user-posts/
+│   ├── reports/
+│   ├── notifications/
+│   ├── analytics/
+│   ├── security/
+│   ├── sessions/
+│   ├── admins/
+│   ├── roles/
+│   ├── permissions/
+│   ├── audit-logs/
+│   ├── contact-messages/
+│   ├── newsletter/
+│   ├── seo/
+│   ├── redirects/
+│   ├── settings/
+│   ├── feature-flags/
+│   ├── backups/
+│   ├── system/
+│   └── integrations/
+│
+│
+├── user/
+│   │
+│   ├── login/
+│   │   ├── login.ejs
+│   │   ├── login.css
+│   │   └── login.js
+│   │
+│   ├── register/
+│   │   ├── register.ejs
+│   │   ├── register.css
+│   │   └── register.js
+│   │
+│   ├── forgot-password/
+│   ├── reset-password/
+│   ├── verify-email/
+│   │
+│   ├── dashboard/
+│   ├── profile/
+│   ├── settings/
+│   ├── sessions/
+│   ├── notifications/
+│   │
+│   ├── posts/
+│   ├── new-post/
+│   ├── edit-post/
+│   ├── drafts/
+│   ├── submissions/
+│   ├── rejected/
+│   ├── bookmarks/
+│   └── activity/
+│
+│
+├── api/
+│   │
+│   ├── v1/
+│   │   ├── auth/
+│   │   │   ├── auth.controller.js
+│   │   │   ├── auth.routes.js
+│   │   │   └── auth.validator.js
+│   │   │
+│   │   ├── posts/
+│   │   ├── users/
+│   │   ├── categories/
+│   │   ├── tags/
+│   │   ├── comments/
+│   │   ├── media/
+│   │   ├── search/
+│   │   ├── notifications/
+│   │   ├── analytics/
+│   │   └── settings/
+│   │
+│   ├── middleware/
+│   │   ├── api-auth.js
+│   │   ├── api-key.js
+│   │   ├── api-rate-limit.js
+│   │   ├── api-version.js
+│   │   ├── api-validation.js
+│   │   └── api-error.js
+│   │
+│   ├── docs/
+│   │   └── openapi.yaml
+│   │
+│   └── webhooks/
+│       ├── webhook.controller.js
+│       ├── webhook.routes.js
+│       ├── signature.js
+│       └── retry.js
+│
+│
+├── database/
+│   │
+│   ├── migrations/
+│   │   ├── 001_create_users.sql
+│   │   ├── 002_create_admins.sql
+│   │   ├── 003_create_roles.sql
+│   │   ├── 004_create_permissions.sql
+│   │   ├── 005_create_posts.sql
+│   │   ├── 006_create_post_revisions.sql
+│   │   ├── 007_create_categories.sql
+│   │   ├── 008_create_tags.sql
+│   │   ├── 009_create_media.sql
+│   │   ├── 010_create_comments.sql
+│   │   ├── 011_create_likes.sql
+│   │   ├── 012_create_bookmarks.sql
+│   │   ├── 013_create_notifications.sql
+│   │   ├── 014_create_reports.sql
+│   │   ├── 015_create_sessions.sql
+│   │   ├── 016_create_security_events.sql
+│   │   ├── 017_create_audit_logs.sql
+│   │   ├── 018_create_settings.sql
+│   │   ├── 019_create_redirects.sql
+│   │   ├── 020_create_api_keys.sql
+│   │   ├── 021_create_webhooks.sql
+│   │   ├── 022_create_newsletter.sql
+│   │   ├── 023_create_analytics.sql
+│   │   └── 024_create_feature_flags.sql
+│   │
+│   ├── rollback/
+│   ├── seeders/
+│   │   ├── admin.seeder.js
+│   │   ├── roles.seeder.js
+│   │   ├── permissions.seeder.js
+│   │   ├── categories.seeder.js
+│   │   └── demo.seeder.js
+│   │
+│   ├── schema/
+│   │   ├── schema.sql
+│   │   └── indexes.sql
+│   │
+│   ├── factories/
+│   ├── fixtures/
+│   ├── backups/
+│   └── database-health.js
+│
+│
+├── security/
+│   │
+│   ├── authentication/
+│   ├── authorization/
+│   ├── csrf/
+│   ├── xss/
+│   ├── ssrf/
+│   ├── rate-limit/
+│   ├── brute-force/
+│   ├── captcha/
+│   ├── file-scanning/
+│   ├── upload-quarantine/
+│   ├── headers/
+│   ├── sessions/
+│   ├── 2fa/
+│   ├── webauthn/
+│   ├── anomaly-detection/
+│   ├── incident-response/
+│   ├── secret-management/
+│   └── security-policies/
+│
+│
+├── storage/
+│   │
+│   ├── uploads/
+│   │   ├── images/
+│   │   ├── documents/
+│   │   └── temp/
+│   │
+│   ├── processed/
+│   ├── thumbnails/
+│   ├── cache/
+│   ├── sessions/
+│   ├── logs/
+│   ├── exports/
+│   ├── backups/
+│   └── quarantine/
+│
+│
+├── jobs/
+│   │
+│   ├── scheduler.js
+│   ├── queue.js
+│   ├── workers/
+│   │   ├── email.worker.js
+│   │   ├── image.worker.js
+│   │   ├── sitemap.worker.js
+│   │   ├── analytics.worker.js
+│   │   ├── search.worker.js
+│   │   ├── backup.worker.js
+│   │   ├── cleanup.worker.js
+│   │   └── notification.worker.js
+│   │
+│   └── retry/
+│       ├── retry-policy.js
+│       └── dead-letter.js
+│
+│
+├── emails/
+│   │
+│   ├── layouts/
+│   │   └── default.ejs
+│   │
+│   ├── templates/
+│   │   ├── welcome.ejs
+│   │   ├── verify-email.ejs
+│   │   ├── password-reset.ejs
+│   │   ├── login-alert.ejs
+│   │   ├── security-alert.ejs
+│   │   ├── post-published.ejs
+│   │   ├── post-rejected.ejs
+│   │   └── notification.ejs
+│   │
+│   └── partials/
+│
+│
+├── localization/
+│   ├── en/
+│   │   └── common.json
+│   └── bn/
+│       └── common.json
+│
+│
+├── analytics/
+│   ├── events/
+│   ├── reports/
+│   ├── exports/
+│   └── retention/
+│
+│
+├── monitoring/
+│   ├── health/
+│   ├── metrics/
+│   ├── uptime/
+│   ├── performance/
+│   ├── slow-queries/
+│   ├── queue/
+│   ├── storage/
+│   └── database/
+│
+│
+├── tests/
+│   │
+│   ├── unit/
+│   ├── integration/
+│   ├── api/
+│   ├── e2e/
+│   ├── security/
+│   ├── performance/
+│   ├── accessibility/
+│   ├── migrations/
+│   ├── fixtures/
+│   └── helpers/
+│
+│
+├── scripts/
+│   ├── setup.js
+│   ├── migrate.js
+│   ├── rollback.js
+│   ├── seed.js
+│   ├── backup.js
+│   ├── restore.js
+│   ├── verify-backup.js
+│   ├── cleanup.js
+│   ├── rebuild-search.js
+│   ├── generate-sitemap.js
+│   ├── security-audit.js
+│   └── health-check.js
+│
+│
+├── docs/
+│   │
+│   ├── architecture/
+│   │   ├── overview.md
+│   │   ├── folder-structure.md
+│   │   ├── backend.md
+│   │   ├── frontend.md
+│   │   └── modules.md
+│   │
+│   ├── database/
+│   │   ├── erd.md
+│   │   ├── tables.md
+│   │   ├── indexes.md
+│   │   └── migrations.md
+│   │
+│   ├── api/
+│   │   ├── overview.md
+│   │   ├── authentication.md
+│   │   └── versioning.md
+│   │
+│   ├── security/
+│   │   ├── security-policy.md
+│   │   ├── authentication.md
+│   │   ├── authorization.md
+│   │   ├── incident-response.md
+│   │   └── backup-security.md
+│   │
+│   ├── deployment/
+│   │   ├── termux.md
+│   │   ├── development.md
+│   │   ├── staging.md
+│   │   ├── production.md
+│   │   └── rollback.md
+│   │
+│   ├── backup/
+│   │   ├── backup.md
+│   │   ├── restore.md
+│   │   └── disaster-recovery.md
+│   │
+│   ├── admin/
+│   │   └── admin-manual.md
+│   │
+│   └── developer/
+│       ├── setup.md
+│       ├── coding-standard.md
+│       └── contribution.md
+│
+│
+└── config/
+    ├── development.js
+    ├── testing.js
+    ├── staging.js
+    └── production.js

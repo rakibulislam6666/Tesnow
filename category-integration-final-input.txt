@@ -1,0 +1,972 @@
+===== CATEGORY FACTORY =====
+/**
+ * app/factories/category.factory.js
+ *
+ * Composition factory for the Category domain.
+ *
+ * Responsibility:
+ *   - Wire Category repository, service and controller.
+ *   - Provide cryptographically secure UUID generation.
+ *   - Keep dependency construction outside routes/controllers.
+ *
+ * Non-responsibilities:
+ *   - HTTP handling.
+ *   - Request validation.
+ *   - Authorization.
+ *   - Business rules.
+ *   - SQL.
+ */
+
+import { randomUUID } from 'node:crypto';
+
+import createCategoryRepository from '../repositories/category.repository.js';
+import createCategoryService from '../services/category.service.js';
+import createCategoryController from '../controllers/category.controller.js';
+
+/**
+ * Create the complete Category HTTP dependency graph.
+ *
+ * Dependency graph:
+ *
+ *   crypto.randomUUID
+ *          ↓
+ *   Category Service
+ *          ↑
+ *   Category Repository
+ *          ↓
+ *   Category Controller
+ *
+ * @returns {{
+ *   categoryRepository: object,
+ *   categoryService: object,
+ *   categoryController: object
+ * }}
+ */
+export function createCategoryDependencies() {
+    const categoryRepository = createCategoryRepository();
+
+    const categoryService = createCategoryService({
+        categoryRepository,
+        uuidGenerator: randomUUID,
+    });
+
+    const categoryController = createCategoryController({
+        categoryService,
+    });
+
+    return Object.freeze({
+        categoryRepository,
+        categoryService,
+        categoryController,
+    });
+}
+
+export default createCategoryDependencies;
+
+===== CATEGORY REPOSITORY LIST RETURN SHAPE =====
+273-// -----------------------------------------------------------------------------
+274-// REPOSITORY FACTORY
+275-// -----------------------------------------------------------------------------
+276-
+277-export function createCategoryRepository(pool = getDbPool()) {
+278-    if (!pool || typeof pool.query !== 'function') {
+279-        throw new TypeError(
+280-            'createCategoryRepository requires a mysql2-compatible pool'
+281-        );
+282-    }
+283-
+284-    // -------------------------------------------------------------------------
+285-    // PUBLIC READS
+286-    // -------------------------------------------------------------------------
+287-
+288:    async function findPublicActive({
+289-        parentId,
+290-        limit,
+291-        offset,
+292-        ordering,
+293-    } = {}) {
+294-        const safeLimit = normalizeLimit(limit);
+295-        const safeOffset = normalizeOffset(offset);
+296-        const parent = normalizeParentFilter(parentId);
+297-        const safeOrdering = normalizeOrdering(ordering);
+298-
+299-        let sql = `
+300-            SELECT ${PUBLIC_COLUMNS}
+301-            FROM categories
+302-            WHERE categories.deleted_at IS NULL
+303-              AND categories.is_active = 1
+304-        `;
+305-
+306-        const params = [];
+307-
+308-        if (parent.kind === 'root') {
+309-            sql += ' AND categories.parent_id IS NULL';
+310-        } else if (parent.kind === 'id') {
+311-            sql += ' AND categories.parent_id = ?';
+312-            params.push(parent.id);
+313-        }
+314-
+315-        sql += `
+316-            ${ORDER_BY_SQL[safeOrdering]}
+317-            LIMIT ? OFFSET ?
+318-        `;
+319-
+320-        params.push(safeLimit, safeOffset);
+321-
+322-        const [rows] = await pool.query(sql, params);
+323-
+324-        return rows;
+325-    }
+326-
+327-    async function findPublicBySlug(slug) {
+328-        const safeSlug = normalizeSlug(slug);
+329-
+330-        const [rows] = await pool.query(
+331-            `
+332-                SELECT ${PUBLIC_COLUMNS}
+333-                FROM categories
+334-                WHERE categories.slug = ?
+335-                  AND categories.is_active = 1
+336-                  AND categories.deleted_at IS NULL
+337-                LIMIT 1
+338-            `,
+339-            [safeSlug]
+340-        );
+341-
+342-        return rows[0] ?? null;
+343-    }
+344-
+345-    async function findPublicByUuid(uuid) {
+346-        const safeUuid = normalizeUuid(uuid);
+347-
+348-        const [rows] = await pool.query(
+349-            `
+350-                SELECT ${PUBLIC_COLUMNS}
+351-                FROM categories
+352-                WHERE categories.uuid = ?
+353-                  AND categories.is_active = 1
+354-                  AND categories.deleted_at IS NULL
+355-                LIMIT 1
+356-            `,
+357-            [safeUuid]
+358-        );
+359-
+360-        return rows[0] ?? null;
+361-    }
+362-
+363-    async function countPublicActive() {
+364-        const [rows] = await pool.query(`
+365-            SELECT COUNT(*) AS count
+366-            FROM categories
+367-            WHERE categories.deleted_at IS NULL
+368-              AND categories.is_active = 1
+369-        `);
+370-
+371-        return Number(rows[0]?.count ?? 0);
+372-    }
+373-
+374-    // -------------------------------------------------------------------------
+375-    // ADMIN READS
+376-    // -------------------------------------------------------------------------
+377-
+378:    async function findAdminList({
+379-        parentId,
+380-        isActive,
+381-        includeDeleted,
+382-        limit,
+383-        offset,
+384-        ordering,
+385-    } = {}) {
+386-        const parent = normalizeParentFilter(parentId);
+387-        const safeIncludeDeleted =
+388-            normalizeIncludeDeleted(includeDeleted);
+389-        const safeLimit = normalizeLimit(limit);
+390-        const safeOffset = normalizeOffset(offset);
+391-        const safeOrdering = normalizeOrdering(ordering);
+392-
+393-        let sql = `
+394-            SELECT ${ADMIN_COLUMNS}
+395-            FROM categories
+396-            WHERE 1 = 1
+397-        `;
+398-
+399-        const params = [];
+400-
+401-        if (!safeIncludeDeleted) {
+402-            sql += ' AND categories.deleted_at IS NULL';
+403-        }
+404-
+405-        // undefined/null means no active-state filter.
+406-        if (isActive !== undefined && isActive !== null) {
+407-            const safeIsActive = assertBoolean(
+408-                isActive,
+409-                'isActive'
+410-            );
+411-
+412-            sql += ' AND categories.is_active = ?';
+413-            params.push(safeIsActive ? 1 : 0);
+414-        }
+415-
+416-        if (parent.kind === 'root') {
+417-            sql += ' AND categories.parent_id IS NULL';
+418-        } else if (parent.kind === 'id') {
+419-            sql += ' AND categories.parent_id = ?';
+420-            params.push(parent.id);
+421-        }
+422-
+423-        sql += `
+424-            ${ORDER_BY_SQL[safeOrdering]}
+425-            LIMIT ? OFFSET ?
+426-        `;
+427-
+428-        params.push(safeLimit, safeOffset);
+429-
+430-        const [rows] = await pool.query(sql, params);
+431-
+432-        return rows;
+433-    }
+434-
+435-    async function findAdminById(
+436-        id,
+437-        { includeDeleted } = {}
+438-    ) {
+439-        const safeId = assertPositiveIntegerId(id);
+440-        const safeIncludeDeleted =
+441-            normalizeIncludeDeleted(includeDeleted);
+442-
+443-        const sql = `
+444-            SELECT ${ADMIN_COLUMNS}
+445-            FROM categories
+446-            WHERE categories.id = ?
+447-              ${
+448-                  safeIncludeDeleted
+449-                      ? ''
+450-                      : 'AND categories.deleted_at IS NULL'
+451-              }
+452-            LIMIT 1
+453-        `;
+454-
+455-        const [rows] = await pool.query(sql, [safeId]);
+456-
+457-        return rows[0] ?? null;
+458-    }
+--
+774-                WHERE categories.id = ?
+775-                  AND categories.deleted_at IS NOT NULL
+776-            `,
+777-            [safeId]
+778-        );
+779-
+780-        return Number(result.affectedRows ?? 0);
+781-    }
+782-
+783-    // -------------------------------------------------------------------------
+784-    // PUBLIC API
+785-    // -------------------------------------------------------------------------
+786-
+787-    return {
+788-        // Public reads
+789:        findPublicActive,
+790-        findPublicBySlug,
+791-        findPublicByUuid,
+792-        countPublicActive,
+793-
+794-        // Admin reads
+795:        findAdminList,
+796-        findAdminById,
+797-        findAdminByUuid,
+798-        countAdmin,
+799-
+800-        // Hierarchy primitives
+801-        listDescendantIds,
+802-        countActiveChildren,
+803-
+804-        // Writes
+805-        create,
+806-        updateById,
+807-        softDeleteById,
+808-        restoreById,
+809-    };
+810-}
+811-
+812-export default createCategoryRepository;
+
+===== ADMIN CATEGORY ROUTES REMAINING =====
+  }
+);
+
+/**
+ * GET /categories/:id/edit
+ * Edit category form
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  '/categories/:id/edit',
+  authorizePermission('category.update'),
+  async (req, res, next) => {
+    sendError(res, new Error('Edit category form not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Edit category form is under development',
+    });
+  }
+);
+
+/**
+ * POST /categories
+ * Create a category
+ * Future: authentication, admin authorization, validation, CSRF, controller
+ */
+router.post(
+  '/categories',
+  authorizePermission('category.create'),
+  async (req, res, next) => {
+    sendError(res, new Error('Create category not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Create category endpoint is under development',
+    });
+  }
+);
+
+/**
+ * PATCH /categories/:id
+ * Update a category
+ * Future: authentication, admin authorization, validation, CSRF, controller
+ */
+router.patch(
+  '/categories/:id',
+  authorizePermission('category.update'),
+  async (req, res, next) => {
+    sendError(res, new Error('Update category not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Update category endpoint is under development',
+    });
+  }
+);
+
+/**
+ * DELETE /categories/:id
+ * Delete a category
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.delete(
+  '/categories/:id',
+  authorizePermission('category.delete'),
+  async (req, res, next) => {
+    sendError(res, new Error('Delete category not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Delete category endpoint is under development',
+    });
+  }
+);
+
+// ============================================================================
+// TAG MANAGEMENT ROUTES
+// ============================================================================
+
+/**
+ * GET /tags
+ * List tags
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  '/tags',
+  authorizePermission('tag.read'),
+  async (req, res, next) => {
+    sendError(res, new Error('Get tags not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Tags endpoint is under development',
+    });
+  }
+);
+
+/**
+ * GET /tags/new
+ * New tag form
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  '/tags/new',
+  authorizePermission('tag.create'),
+  async (req, res, next) => {
+    sendError(res, new Error('New tag form not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'New tag form is under development',
+    });
+  }
+);
+
+/**
+ * GET /tags/:id/edit
+ * Edit tag form
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  '/tags/:id/edit',
+  authorizePermission('tag.update'),
+  async (req, res, next) => {
+    sendError(res, new Error('Edit tag form not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Edit tag form is under development',
+    });
+  }
+);
+
+/**
+ * POST /tags
+ * Create a tag
+ * Future: authentication, admin authorization, validation, CSRF, controller
+ */
+router.post(
+  '/tags',
+  authorizePermission('tag.create'),
+  async (req, res, next) => {
+    sendError(res, new Error('Create tag not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Create tag endpoint is under development',
+    });
+  }
+);
+
+/**
+ * PATCH /tags/:id
+ * Update a tag
+ * Future: authentication, admin authorization, validation, CSRF, controller
+ */
+router.patch(
+  '/tags/:id',
+  authorizePermission('tag.update'),
+  async (req, res, next) => {
+    sendError(res, new Error('Update tag not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Update tag endpoint is under development',
+    });
+  }
+);
+
+
+===== API ROUTES FULL CATEGORY AREA =====
+45- * Get a single post by slug
+46- * Future: controller
+47- */
+48-router.get('/posts/slug/:slug', async (req, res, next) => {
+49-    sendError(res, new Error('API post by slug not yet implemented'), {
+50-        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+51-        message: 'API post by slug endpoint is under development',
+52-    });
+53-});
+54-
+55-/**
+56- * GET /categories
+57- * List categories
+58- * Future: authentication (optional), controller
+59- */
+60:router.get('/categories', async (req, res, next) => {
+61-    sendError(res, new Error('API categories list not yet implemented'), {
+62-        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+63-        message: 'API categories endpoint is under development',
+64-    });
+65-});
+66-
+67-/**
+68- * GET /categories/:id
+69- * Get a single category
+70- * Future: controller
+71- */
+72:router.get('/categories/:id', async (req, res, next) => {
+73-    sendError(res, new Error('API category by ID not yet implemented'), {
+74-        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+75-        message: 'API category endpoint is under development',
+76-    });
+77-});
+78-
+79-/**
+80- * GET /tags
+81- * List tags
+82- * Future: authentication (optional), controller
+83- */
+84-router.get('/tags', async (req, res, next) => {
+85-    sendError(res, new Error('API tags list not yet implemented'), {
+86-        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+87-        message: 'API tags endpoint is under development',
+88-    });
+89-});
+90-
+91-/**
+92- * GET /tags/:id
+93- * Get a single tag
+94- * Future: controller
+95- */
+96-router.get('/tags/:id', async (req, res, next) => {
+97-    sendError(res, new Error('API tag by ID not yet implemented'), {
+98-        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+99-        message: 'API tag endpoint is under development',
+100-    });
+101-});
+102-
+103-/**
+104- * GET /search
+105- * Search across posts, categories, tags
+106- * Future: validation, search service, controller
+107- */
+108-router.get('/search', async (req, res, next) => {
+109-    sendError(res, new Error('API search not yet implemented'), {
+110-        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+111-        message: 'API search endpoint is under development',
+112-    });
+113-});
+114-
+115-// ============================================================================
+116-// AUTHENTICATED USER RESOURCES
+117-// ============================================================================
+118-
+119-/**
+120- * GET /me
+121- * Get current authenticated user
+122- * Future: authentication middleware, controller
+123- */
+124-router.get('/me', async (req, res, next) => {
+125-    sendError(res, new Error('API current user not yet implemented'), {
+126-        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+127-        message: 'API current user endpoint is under development',
+128-    });
+129-});
+130-
+131-/**
+132- * GET /user/posts
+133- * Get current user's posts
+134- * Future: authentication, pagination, controller
+135- */
+136-router.get('/user/posts', async (req, res, next) => {
+137-    sendError(res, new Error('API user posts not yet implemented'), {
+138-        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+139-        message: 'API user posts endpoint is under development',
+140-    });
+141-});
+142-
+143-/**
+144- * GET /user/bookmarks
+145- * Get current user's bookmarks
+146- * Future: authentication, pagination, controller
+147- */
+148-router.get('/user/bookmarks', async (req, res, next) => {
+149-    sendError(res, new Error('API user bookmarks not yet implemented'), {
+150-        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+151-        message: 'API user bookmarks endpoint is under development',
+152-    });
+153-});
+154-
+155-/**
+156- * POST /user/bookmarks/:postId
+157- * Add a bookmark
+158- * Future: authentication, validation, controller
+159- */
+160-router.post('/user/bookmarks/:postId', async (req, res, next) => {
+161-    sendError(res, new Error('API add bookmark not yet implemented'), {
+162-        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+163-        message: 'API add bookmark endpoint is under development',
+164-    });
+165-});
+166-
+167-/**
+168- * DELETE /user/bookmarks/:postId
+169- * Remove a bookmark
+170- * Future: authentication, authorization, controller
+171- */
+172-router.delete('/user/bookmarks/:postId', async (req, res, next) => {
+
+===== VALIDATION MIDDLEWARE EXPORTS =====
+/**
+ * app/middleware/validation.js
+ *
+ * Generic request validation middleware.
+ *
+ * Architecture:
+ *
+ *   Route
+ *     ↓
+ *   Validation Middleware
+ *     ↓
+ *   Validator
+ *     ↓
+ *   req.validated
+ *     ↓
+ *   Controller
+ *
+ * Responsibilities:
+ *   - Execute configured validators.
+ *   - Validate request body/query/params independently.
+ *   - Store normalized validator output in req.validated.
+ *   - Forward validation/application errors to next(error).
+ *
+ * Non-responsibilities:
+ *   - Authentication.
+ *   - Authorization.
+ *   - Business logic.
+ *   - SQL/database access.
+ *   - HTTP response generation.
+ *   - Sanitization beyond what the validator itself performs.
+ *
+ * Configuration contract:
+ *   - Configuration is validated ONCE at middleware creation, not per
+ *     request.
+ *   - Only `body`, `query`, and `params` are accepted. Unknown keys are
+ *     rejected with a TypeError so a typo (e.g. `bdoy`) or an unintended
+ *     part (e.g. `headers`) cannot silently disable validation.
+ *   - An empty configuration is rejected: a middleware that silently
+ *     validates nothing is worse than one that fails to be created.
+ *
+ * Execution contract:
+ *   - Validators run sequentially in a fixed order: body → query → params.
+ *   - Each validator's return value is stored under the same key on
+ *     `req.validated`, without cloning, merging, or coercing.
+ *   - A validator may return an object, a scalar, or any other value.
+ *     `req.validated.<part>` will equal exactly what was returned.
+ *   - Validators may be synchronous or asynchronous.
+ *
+ * Security contract:
+ *   - `req.body`, `req.query`, and `req.params` are never mutated.
+ *   - Raw request values are never merged into `req.validated`.
+ *   - Only functions supplied by application code are executed; nothing
+ *     is evaluated dynamically.
+ *   - The `req.validated` container is frozen after population; the
+ *     values it holds are not deep-frozen.
+ *   - Errors are forwarded unchanged via `next(error)`; the centralized
+ *     error handler owns classification and response shaping.
+ */
+
+// ----------------------------------------------------------------------------
+// CONSTANTS
+// ----------------------------------------------------------------------------
+
+/**
+ * Allowed request parts, in deterministic execution order.
+ *
+ * `body` first because it is the most common source of validation
+ * failures on write endpoints; `params` last because route params are
+ * typically small and already constrained by the URL shape.
+ */
+const REQUEST_PARTS = Object.freeze(['body', 'query', 'params']);
+
+const REQUEST_PART_SET = new Set(REQUEST_PARTS);
+
+// ----------------------------------------------------------------------------
+// CONFIGURATION VALIDATION
+// ----------------------------------------------------------------------------
+
+/**
+ * Validate middleware configuration.
+ *
+ * Runs once at middleware creation so invalid route configuration fails
+ * at startup rather than during request handling.
+ *
+ * Rejects:
+ *   - non-plain-object configuration
+ *   - unknown keys (typos or unsupported request parts)
+ *   - non-function validators
+ *   - empty configuration (at least one validator is required)
+ *
+ * @param {object} validators
+ * @throws {TypeError}
+ */
+function assertValidators(validators) {
+    if (
+        validators === null ||
+        typeof validators !== 'object' ||
+        Array.isArray(validators)
+    ) {
+        throw new TypeError('Validation configuration must be a plain object.');
+    }
+
+    let configuredCount = 0;
+
+    for (const key of Object.keys(validators)) {
+        if (!REQUEST_PART_SET.has(key)) {
+            throw new TypeError(`Unsupported request part: "${key}".`);
+        }
+
+        if (typeof validators[key] !== 'function') {
+            throw new TypeError(
+                `Validator for "${key}" must be a function.`,
+            );
+        }
+
+        configuredCount += 1;
+    }
+
+    if (configuredCount === 0) {
+        throw new TypeError(
+            'Validation configuration must include at least one validator (body, query, or params).',
+        );
+    }
+}
+
+// ----------------------------------------------------------------------------
+// MIDDLEWARE FACTORY
+// ----------------------------------------------------------------------------
+
+/**
+ * Create generic request validation middleware.
+ *
+ * Example:
+ *
+ *   validate({
+ *       body: createCategoryBody,
+ *       query: listPublicCategoriesQuery,
+ *   })
+ *
+ * The validator's return value becomes the corresponding
+ * `req.validated` property, without transformation.
+ *
+ * @param {{
+ *   body?: Function,
+ *   query?: Function,
+ *   params?: Function
+ * }} validators
+ *
+ * @returns {Function} Express-compatible middleware
+ */
+export function validate(validators = {}) {
+    assertValidators(validators);
+
+    // Precompute the configured parts once. This is the hot path's only
+    // configuration-derived work, and it is frozen so no caller can
+    // mutate the plan after creation.
+    const configuredParts = Object.freeze(
+        REQUEST_PARTS.filter((part) =>
+            Object.prototype.hasOwnProperty.call(validators, part),
+        ),
+    );
+
+    return async function validationMiddleware(req, res, next) {
+        try {
+            const validated = {};
+
+            for (const part of configuredParts) {
+                const validator = validators[part];
+                const input = req[part];
+                const result = await validator(input);
+                validated[part] = result;
+            }
+
+            // Freeze the container only. The validator's returned value is
+            // not deep-frozen: it may be a large object, a shared reference,
+            // or an immutable scalar, and deep-freezing would cost more
+            // than it protects.
+            req.validated = Object.freeze(validated);
+
+            return next();
+        } catch (error) {
+            // Forward unchanged. The centralized error handler owns final
+            // classification; ValidationError.details is preserved intact.
+            return next(error);
+        }
+    };
+}
+
+// ----------------------------------------------------------------------------
+// CONVENIENCE HELPERS
+// ----------------------------------------------------------------------------
+
+/**
+ * Validate request body only.
+ *
+ * @param {Function} validator
+ * @returns {Function}
+ */
+export function validateBody(validator) {
+    return validate({ body: validator });
+}
+
+/**
+ * Validate request query only.
+ *
+ * @param {Function} validator
+ * @returns {Function}
+ */
+export function validateQuery(validator) {
+    return validate({ query: validator });
+}
+
+/**
+ * Validate request params only.
+ *
+ * @param {Function} validator
+ * @returns {Function}
+ */
+export function validateParams(validator) {
+    return validate({ params: validator });
+}
+
+/**
+ * Validate body + query.
+ *
+ * Convenience helper for endpoints that accept both.
+ *
+ * @param {Function} bodyValidator
+ * @param {Function} queryValidator
+ * @returns {Function}
+ */
+export function validateBodyAndQuery(bodyValidator, queryValidator) {
+    return validate({
+        body: bodyValidator,
+        query: queryValidator,
+    });
+}
+
+/**
+ * Validate params + query.
+ *
+ * Convenience helper for endpoints that use route parameters and
+ * query-string filters/pagination.
+ *
+ * @param {Function} paramsValidator
+ * @param {Function} queryValidator
+ * @returns {Function}
+ */
+export function validateParamsAndQuery(paramsValidator, queryValidator) {
+    return validate({
+        params: paramsValidator,
+        query: queryValidator,
+    });
+}
+
+/**
+ * Validate params + body.
+ *
+ * @param {Function} paramsValidator
+ * @param {Function} bodyValidator
+ * @returns {Function}
+ */
+export function validateParamsAndBody(paramsValidator, bodyValidator) {
+    return validate({
+        params: paramsValidator,
+        body: bodyValidator,
+    });
+}
+
+/**
+ * Validate params + query + body.
+ *
+ * @param {Function} paramsValidator
+ * @param {Function} queryValidator
+ * @param {Function} bodyValidator
+ * @returns {Function}
+ */
+export function validateRequest(
+    paramsValidator,
+    queryValidator,
+    bodyValidator,
+) {
+    return validate({
+        params: paramsValidator,
+        query: queryValidator,
+        body: bodyValidator,
+    });
+}
+
+// ----------------------------------------------------------------------------
+// DEFAULT EXPORT
+// ----------------------------------------------------------------------------
+
+export default validate;
+===== CATEGORY SERVICE EXPORT/FACTORY END =====
+    ) {
+        return repository.findAdminList(
+            options
+        );
+    }
+
+    /**
+     * Get an admin category by numeric ID.
+     *
+     * @param {number} id
+     * @param {{includeDeleted?: boolean}} [options]
+     * @returns {Promise<object>}
+     */
+    async function getAdminCategory(
+        id,
+        options = {}
+    ) {
+        const row =
+            await repository.findAdminById(
+                id,
+                options
+            );
+
+        if (!row) {
+            throw new NotFoundError(
+                'Category not found'
+            );
+        }
+
+        return row;
+    }
+
+    /**
+     * Get an admin category by UUID.
+     *
+     * @param {string} uuid
+     * @param {{includeDeleted?: boolean}} [options]
+     * @returns {Promise<object>}
+     */
+    async function getAdminCategoryByUuid(
+        uuid,
+        options = {}
+    ) {
+        const row =
+            await repository.findAdminByUuid(
+                uuid,
+                options
+            );
+
+        if (!row) {
+            throw new NotFoundError(
+                'Category not found'
+            );
+        }
+
+        return row;
+    }
+
+    /**
+     * Count categories for administrative dashboards.
+     *
+     * @param {object} [options]
+     * @returns {Promise<number>}
+     */
+    async function countAdminCategories(
+        options = {}
+    ) {
+        return repository.countAdmin(
+            options
+        );
+    }
+
+    // ------------------------------------------------------------------------
+    // FROZEN PUBLIC API
+    // ------------------------------------------------------------------------
+
+    return Object.freeze({
+        // Writes
+        createCategory,
+        updateCategory,
+        deleteCategory,
+        restoreCategory,
+        activateCategory,
+        deactivateCategory,
+
+        // Public reads
+        listPublicCategories,
+        getPublicCategoryBySlug,
+        getPublicCategoryByUuid,
+        countPublicCategories,
+
+        // Admin reads
+        listAdminCategories,
+        getAdminCategory,
+        getAdminCategoryByUuid,
+        countAdminCategories,
+    });
+}
+
+export default createCategoryService;

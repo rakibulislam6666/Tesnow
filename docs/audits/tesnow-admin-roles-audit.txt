@@ -1,0 +1,479 @@
+===== TESNOW ADMIN-ROLES SEEDER AUDIT =====
+
+===== DATE =====
+Wed Sep  9 22:21:47 +06 2026
+
+===== TARGET FILE =====
+MISSING
+
+===== SEEDERS DIRECTORY =====
+database/seeders/admin.seeder.js
+database/seeders/categories.seeder.js
+database/seeders/demo.seeder.js
+database/seeders/permissions.seeder.js
+database/seeders/role_permissions.seeder.js
+database/seeders/roles.seeder.js
+
+===== ADMIN ROLES MIGRATION =====
+-- ============================================================
+-- TESNOW
+-- 025_create_admin_roles.sql
+-- Many-to-many relationship between administrators and roles
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS admin_roles (
+    admin_id BIGINT UNSIGNED NOT NULL,
+    role_id  BIGINT UNSIGNED NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (admin_id, role_id),
+
+    KEY idx_admin_roles_role_id (role_id),
+
+    CONSTRAINT fk_admin_roles_admin
+        FOREIGN KEY (admin_id)
+        REFERENCES admins(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_admin_roles_role
+        FOREIGN KEY (role_id)
+        REFERENCES roles(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+===== ADMINS MIGRATION =====
+-- ============================================================
+-- TESNOW
+-- 002_create_admins.sql
+-- Administrative accounts
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS admins (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+
+    user_id BIGINT UNSIGNED NOT NULL,
+
+    admin_uuid CHAR(36) NOT NULL,
+
+    status ENUM(
+        'active',
+        'inactive',
+        'suspended'
+    ) NOT NULL DEFAULT 'active',
+
+    two_factor_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+
+    two_factor_secret_encrypted VARBINARY(512) NULL,
+
+    last_admin_login_at DATETIME NULL,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+
+    deleted_at DATETIME NULL,
+
+    PRIMARY KEY (id),
+
+    UNIQUE KEY uq_admins_user_id (user_id),
+    UNIQUE KEY uq_admins_uuid (admin_uuid),
+
+    KEY idx_admins_status (status),
+    KEY idx_admins_deleted_at (deleted_at),
+
+    CONSTRAINT fk_admins_user
+        FOREIGN KEY (user_id)
+        REFERENCES users(id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT
+
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
+===== ROLES MIGRATION =====
+-- ============================================================
+-- TESNOW
+-- 003_create_roles.sql
+-- Role-based access control
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS roles (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+
+    uuid CHAR(36) NOT NULL,
+
+    name VARCHAR(100) NOT NULL,
+    slug VARCHAR(100) NOT NULL,
+
+    description VARCHAR(500) NULL,
+
+    is_system_role BOOLEAN NOT NULL DEFAULT FALSE,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+
+    deleted_at DATETIME NULL,
+
+    PRIMARY KEY (id),
+
+    UNIQUE KEY uq_roles_uuid (uuid),
+    UNIQUE KEY uq_roles_name (name),
+    UNIQUE KEY uq_roles_slug (slug),
+
+    KEY idx_roles_system (is_system_role),
+    KEY idx_roles_deleted_at (deleted_at)
+
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
+===== ROLE PERMISSIONS MIGRATION =====
+-- ============================================================
+-- TESNOW
+-- 004_create_permissions.sql
+-- Fine-grained permission system
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS permissions (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+
+    uuid CHAR(36) NOT NULL,
+
+    name VARCHAR(150) NOT NULL,
+    slug VARCHAR(150) NOT NULL,
+
+    description VARCHAR(500) NULL,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+
+    UNIQUE KEY uq_permissions_uuid (uuid),
+    UNIQUE KEY uq_permissions_name (name),
+    UNIQUE KEY uq_permissions_slug (slug)
+
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
+
+
+-- ============================================================
+-- ROLE ↔ PERMISSION
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS role_permissions (
+    role_id BIGINT UNSIGNED NOT NULL,
+    permission_id BIGINT UNSIGNED NOT NULL,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (role_id, permission_id),
+
+    KEY idx_role_permissions_permission
+        (permission_id),
+
+    CONSTRAINT fk_role_permissions_role
+        FOREIGN KEY (role_id)
+        REFERENCES roles(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_role_permissions_permission
+        FOREIGN KEY (permission_id)
+        REFERENCES permissions(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
+===== EXISTING SEEDERS =====
+--- database/seeders/permissions.seeder.js ---
+/**
+ * database/seeders/permissions.seeder.js
+ * Seeds the current permissions catalog (45 permissions) into the permissions table.
+ *
+ * This seeder is idempotent – it checks each permission by `slug` and inserts only missing ones.
+ *
+ * @param {import('mysql2/promise').Connection} connection - A database connection supplied by the seed runner.
+ * @returns {Promise<{ inserted: number, skipped: number }>}
+ */
+
+import { randomUUID } from 'node:crypto';
+
+// ----------------------------------------------------------------------------
+// 1. AUTHORITATIVE CURRENT PERMISSION CATALOG
+// ----------------------------------------------------------------------------
+
+const PERMISSIONS = [
+  // Dashboard
+  { slug: 'dashboard.read', name: 'View Dashboard', description: 'Allows viewing the admin dashboard overview.' },
+
+  // Posts
+  { slug: 'post.read', name: 'View Posts', description: 'Allows viewing posts in the admin area.' },
+  { slug: 'post.create', name: 'Create Posts', description: 'Allows creating new posts.' },
+  { slug: 'post.update', name: 'Update Posts', description: 'Allows editing existing posts.' },
+  { slug: 'post.delete', name: 'Delete Posts', description: 'Allows permanently deleting posts.' },
+  { slug: 'post.restore', name: 'Restore Posts', description: 'Allows restoring soft‑deleted posts.' },
+  { slug: 'post.publish', name: 'Publish Posts', description: 'Allows publishing or unpublishing posts.' },
+  { slug: 'post.schedule', name: 'Schedule Posts', description: 'Allows setting scheduled publishing times for posts.' },
+
+  // Categories
+  { slug: 'category.read', name: 'View Categories', description: 'Allows viewing categories.' },
+  { slug: 'category.create', name: 'Create Categories', description: 'Allows creating new categories.' },
+  { slug: 'category.update', name: 'Update Categories', description: 'Allows editing categories.' },
+  { slug: 'category.delete', name: 'Delete Categories', description: 'Allows deleting categories.' },
+
+  // Tags
+  { slug: 'tag.read', name: 'View Tags', description: 'Allows viewing tags.' },
+  { slug: 'tag.create', name: 'Create Tags', description: 'Allows creating new tags.' },
+  { slug: 'tag.update', name: 'Update Tags', description: 'Allows editing tags.' },
+  { slug: 'tag.delete', name: 'Delete Tags', description: 'Allows deleting tags.' },
+
+  // Media
+  { slug: 'media.read', name: 'View Media', description: 'Allows viewing media files.' },
+  { slug: 'media.create', name: 'Upload Media', description: 'Allows uploading new media files.' },
+  { slug: 'media.update', name: 'Update Media Metadata', description: 'Allows editing media metadata.' },
+  { slug: 'media.delete', name: 'Delete Media', description: 'Allows deleting media files.' },
+
+  // Comments
+  { slug: 'comment.read', name: 'View Comments', description: 'Allows viewing comments.' },
+  { slug: 'comment.approve', name: 'Approve Comments', description: 'Allows approving pending comments.' },
+  { slug: 'comment.reject', name: 'Reject Comments', description: 'Allows rejecting pending comments.' },
+  { slug: 'comment.delete', name: 'Delete Comments', description: 'Allows deleting comments.' },
+
+  // Users
+  { slug: 'user.read', name: 'View Users', description: 'Allows viewing user accounts.' },
+  { slug: 'user.create', name: 'Create Users', description: 'Allows creating new user accounts.' },
+  { slug: 'user.update', name: 'Update Users', description: 'Allows editing user profiles.' },
+  { slug: 'user.delete', name: 'Delete Users', description: 'Allows permanently deleting user accounts.' },
+  { slug: 'user.suspend', name: 'Suspend Users', description: 'Allows suspending or unsuspending users.' },
+  { slug: 'user.verify', name: 'Verify Users', description: 'Allows manually verifying user accounts.' },
+  { slug: 'user.force_password_reset', name: 'Force Password Reset', description: 'Allows forcing a password reset for users.' },
+
+  // User Posts
+  { slug: 'user_post.read', name: 'View User Posts', description: 'Allows viewing posts owned by users.' },
+
+  // Notifications
+  { slug: 'notification.read', name: 'View Notifications', description: 'Allows viewing system notifications.' },
+  { slug: 'notification.create', name: 'Create Notifications', description: 'Allows sending system notifications.' },
+  { slug: 'notification.delete', name: 'Delete Notifications', description: 'Allows deleting notifications.' },
+
+  // Analytics
+  { slug: 'analytics.read', name: 'View Analytics', description: 'Allows viewing analytics dashboards and data.' },
+
+  // Audit Logs
+  { slug: 'audit_log.read', name: 'View Audit Logs', description: 'Allows viewing the audit trail.' },
+
+  // Security
+  { slug: 'security.read', name: 'View Security Overview', description: 'Allows viewing security events and overview.' },
+  { slug: 'security.sessions.read', name: 'View Active Sessions', description: 'Allows viewing active sessions.' },
+
+  // Reports
+  { slug: 'report.read', name: 'View Reports', description: 'Allows viewing user reports.' },
+  { slug: 'report.resolve', name: 'Resolve Reports', description: 'Allows resolving reports.' },
+  { slug: 'report.dismiss', name: 'Dismiss Reports', description: 'Allows dismissing reports.' },
+
+  // Settings
+  { slug: 'setting.read', name: 'View Settings', description: 'Allows viewing site settings.' },
+  { slug: 'setting.update', name: 'Update Settings', description: 'Allows editing site settings.' },
+
+  // System Health
+  { slug: 'system.read', name: 'View System Health', description: 'Allows viewing system health and status.' },
+];
+
+// ----------------------------------------------------------------------------
+// 2. SEEDER FUNCTION
+// ----------------------------------------------------------------------------
+
+/**
+ * Seeds the permissions table with the current permission catalog.
+ *
+ * @param {import('mysql2/promise').Connection} connection - A database connection.
+ * @returns {Promise<{ inserted: number, skipped: number }>}
+ */
+export async function seedPermissions(connection) {
+  let inserted = 0;
+  let skipped = 0;
+
+  for (const { slug, name, description } of PERMISSIONS) {
+    // 1. Check if the permission already exists by slug.
+    const [rows] = await connection.query(
+      'SELECT id FROM permissions WHERE slug = ? LIMIT 1',
+      [slug]
+    );
+
+    if (rows.length > 0) {
+      // Slug exists – skip without modifying.
+      skipped += 1;
+      continue;
+    }
+
+    // 2. Insert the new permission.
+    const uuid = randomUUID();
+    await connection.query(
+      'INSERT INTO permissions (uuid, name, slug, description) VALUES (?, ?, ?, ?)',
+      [uuid, name, slug, description]
+    );
+
+    inserted += 1;
+  }
+
+  return { inserted, skipped };
+}
+
+// ----------------------------------------------------------------------------
+// 3. DEFAULT EXPORT
+// ----------------------------------------------------------------------------
+
+export default seedPermissions;
+
+--- database/seeders/roles.seeder.js ---
+/**
+ * database/seeders/roles.seeder.js
+ * Seeds the approved current role catalog (8 roles) into the roles table.
+ *
+ * This seeder is idempotent – it checks each role by `slug` and inserts only missing ones.
+ *
+ * @param {import('mysql2/promise').Connection} connection - A database connection supplied by the seed runner.
+ * @returns {Promise<{ inserted: number, skipped: number }>}
+ */
+
+import { randomUUID } from 'node:crypto';
+
+// ----------------------------------------------------------------------------
+// 1. AUTHORITATIVE CURRENT ROLE CATALOG
+// ----------------------------------------------------------------------------
+
+const ROLES = [
+  {
+    slug: 'super_admin',
+    name: 'Super Administrator',
+    description: 'Full system control – has all current permissions. System role.',
+    isSystemRole: true,
+  },
+  {
+    slug: 'content_manager',
+    name: 'Content Manager',
+    description: 'Manages posts, categories, tags, media, and comments.',
+    isSystemRole: false,
+  },
+  {
+    slug: 'user_manager',
+    name: 'User Manager',
+    description: 'Manages user accounts, user posts, and notifications.',
+    isSystemRole: false,
+  },
+  {
+    slug: 'moderator',
+    name: 'Moderator',
+    description: 'Moderates comments and handles user reports.',
+    isSystemRole: false,
+  },
+  {
+    slug: 'analytics_viewer',
+    name: 'Analytics Viewer',
+    description: 'Views analytics dashboards, system health, and basic operational context (read-only).',
+    isSystemRole: false,
+  },
+  {
+    slug: 'settings_manager',
+    name: 'Settings Manager',
+    description: 'Manages site settings.',
+    isSystemRole: false,
+  },
+  {
+    slug: 'viewer',
+    name: 'Viewer',
+    description: 'Read‑only access to operational content (posts, categories, tags, media, comments).',
+    isSystemRole: false,
+  },
+  {
+    slug: 'auditor',
+    name: 'Auditor',
+    description: 'Read‑only access to audit logs, security events, and active sessions.',
+    isSystemRole: false,
+  },
+];
+
+// ----------------------------------------------------------------------------
+// 2. SEEDER FUNCTION
+// ----------------------------------------------------------------------------
+
+/**
+ * Seeds the roles table with the current role catalog.
+ *
+ * @param {import('mysql2/promise').Connection} connection - A database connection.
+ * @returns {Promise<{ inserted: number, skipped: number }>}
+ */
+export async function seedRoles(connection) {
+  let inserted = 0;
+  let skipped = 0;
+
+  for (const { slug, name, description, isSystemRole } of ROLES) {
+    // 1. Check if the role already exists by slug.
+    const [rows] = await connection.query(
+      'SELECT id FROM roles WHERE slug = ? LIMIT 1',
+      [slug]
+    );
+
+    if (rows.length > 0) {
+      // Slug exists – skip without modifying.
+      skipped += 1;
+      continue;
+    }
+
+    // 2. Insert the new role.
+    const uuid = randomUUID();
+    await connection.query(
+      `INSERT INTO roles (uuid, name, slug, description, is_system_role)
+       VALUES (?, ?, ?, ?, ?)`,
+      [uuid, name, slug, description, isSystemRole]
+    );
+
+    inserted += 1;
+  }
+
+  return { inserted, skipped };
+}
+
+// ----------------------------------------------------------------------------
+// 3. DEFAULT EXPORT
+// ----------------------------------------------------------------------------
+
+export default seedRoles;
+--- database/seeders/admin.seeder.js ---
+
+===== SEED SCRIPT =====
+
+===== DB STATE =====
+◇ injected env (9) from .env // tip: ⌘ suppress logs { quiet: true }
+admins: 0
+roles: 8
+admin_roles: 0
+ADMINS:
+┌─────────┐
+│ (index) │
+├─────────┤
+└─────────┘
+ROLES:
+┌─────────┬────┬────────────────────┬───────────────────────┬────────────────┬────────────┐
+│ (index) │ id │ slug               │ name                  │ is_system_role │ deleted_at │
+├─────────┼────┼────────────────────┼───────────────────────┼────────────────┼────────────┤
+│ 0       │ 1  │ 'super_admin'      │ 'Super Administrator' │ 1              │ null       │
+│ 1       │ 2  │ 'content_manager'  │ 'Content Manager'     │ 0              │ null       │
+│ 2       │ 3  │ 'user_manager'     │ 'User Manager'        │ 0              │ null       │
+│ 3       │ 4  │ 'moderator'        │ 'Moderator'           │ 0              │ null       │
+│ 4       │ 5  │ 'analytics_viewer' │ 'Analytics Viewer'    │ 0              │ null       │
+│ 5       │ 6  │ 'settings_manager' │ 'Settings Manager'    │ 0              │ null       │
+│ 6       │ 7  │ 'viewer'           │ 'Viewer'              │ 0              │ null       │
+│ 7       │ 8  │ 'auditor'          │ 'Auditor'             │ 0              │ null       │
+└─────────┴────┴────────────────────┴───────────────────────┴────────────────┴────────────┘
+ADMIN_ROLE_MAPPINGS:
+┌─────────┐
+│ (index) │
+├─────────┤
+└─────────┘

@@ -1,0 +1,1318 @@
+/**
+ * app/routes/admin.routes.js
+ * Admin route composition layer for Tesnow
+ * Protected administrative routes for content, user, and system management
+ *
+ * @module routes/admin.routes
+ */
+
+import express from "express";
+import { sendSuccess, sendError } from "../core/response.js";
+import { HTTP_STATUS } from "../core/constants.js";
+import authenticate from "../middleware/authentication.js";
+import authorizeAdmin from "../middleware/authorization.js";
+import authorizePermission from "../middleware/rbac.js";
+import {
+  validateBody,
+  validateQuery,
+  validateParams,
+  validateParamsAndBody,
+} from "../middleware/validation.js";
+import {
+  listRoles,
+  getRole,
+  createRole,
+  updateRole,
+  deleteRole,
+  listRolePermissions,
+  grantPermissionToRole,
+  revokePermissionFromRole,
+} from "../controllers/admin/role.controller.js";
+import { listPermissions } from "../controllers/admin/permission.controller.js";
+import createCategoryDependencies from "../factories/category.factory.js";
+
+import {
+  createCategoryBody,
+  updateCategoryBody,
+  categoryIdParam,
+  categoryUuidParam,
+  listAdminCategoriesQuery,
+  countAdminCategoriesQuery,
+} from "../validators/category.validator.js";
+
+const router = express.Router();
+const { categoryController } = createCategoryDependencies();
+
+// Protect all admin routes with authentication + authorization
+router.use(authenticate);
+router.use(authorizeAdmin);
+
+// ============================================================================
+// DASHBOARD ROUTES
+// ============================================================================
+
+/**
+ * GET /
+ * Admin dashboard overview
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  "/",
+  authorizePermission("dashboard.read"),
+  async (req, res, next) => {
+    sendError(res, new Error("Admin dashboard not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Admin dashboard is under development",
+    });
+  },
+);
+
+// ============================================================================
+// POST MANAGEMENT ROUTES
+// ============================================================================
+
+/**
+ * GET /posts
+ * List all posts (with filtering, pagination)
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  "/posts",
+  authorizePermission("post.read"),
+  async (req, res, next) => {
+    sendError(res, new Error("Get admin posts list not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Admin posts list endpoint is under development",
+    });
+  },
+);
+
+/**
+ * GET /posts/new
+ * Render or prepare new post form
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  "/posts/new",
+  authorizePermission("post.create"),
+  async (req, res, next) => {
+    sendError(res, new Error("New post form not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "New post form is under development",
+    });
+  },
+);
+
+/**
+ * GET /posts/:id
+ * Get a single post (admin view)
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  "/posts/:id",
+  authorizePermission("post.read"),
+  async (req, res, next) => {
+    sendError(res, new Error("Get admin post not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Admin post endpoint is under development",
+    });
+  },
+);
+
+/**
+ * GET /posts/:id/edit
+ * Render or prepare edit post form
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  "/posts/:id/edit",
+  authorizePermission("post.update"),
+  async (req, res, next) => {
+    sendError(res, new Error("Edit post form not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Edit post form is under development",
+    });
+  },
+);
+
+/**
+ * GET /posts/:id/revisions
+ * List revisions for a post
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  "/posts/:id/revisions",
+  authorizePermission("post.read"),
+  async (req, res, next) => {
+    sendError(res, new Error("Get post revisions not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Post revisions endpoint is under development",
+    });
+  },
+);
+
+/**
+ * GET /posts/:id/revisions/:revisionId
+ * Get a specific revision
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  "/posts/:id/revisions/:revisionId",
+  authorizePermission("post.read"),
+  async (req, res, next) => {
+    sendError(res, new Error("Get revision not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Post revision endpoint is under development",
+    });
+  },
+);
+
+/**
+ * POST /posts
+ * Create a new post
+ * Future: authentication, admin authorization, validation, CSRF, controller
+ */
+router.post(
+  "/posts",
+  authorizePermission("post.create"),
+  async (req, res, next) => {
+    sendError(res, new Error("Create post not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Create post endpoint is under development",
+    });
+  },
+);
+
+/**
+ * PATCH /posts/:id
+ * Update a post
+ * Future: authentication, admin authorization, validation, CSRF, controller
+ */
+router.patch(
+  "/posts/:id",
+  authorizePermission("post.update"),
+  async (req, res, next) => {
+    sendError(res, new Error("Update post not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Update post endpoint is under development",
+    });
+  },
+);
+
+/**
+ * DELETE /posts/:id
+ * Move post to trash
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.delete(
+  "/posts/:id",
+  authorizePermission("post.delete"),
+  async (req, res, next) => {
+    sendError(res, new Error("Trash post not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Trash post endpoint is under development",
+    });
+  },
+);
+
+/**
+ * DELETE /posts/:id/permanent
+ * Permanently delete a post
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.delete(
+  "/posts/:id/permanent",
+  authorizePermission("post.delete"),
+  async (req, res, next) => {
+    sendError(res, new Error("Permanent delete post not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Permanent delete post endpoint is under development",
+    });
+  },
+);
+
+/**
+ * POST /posts/:id/publish
+ * Publish a post
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.post(
+  "/posts/:id/publish",
+  authorizePermission("post.publish"),
+  async (req, res, next) => {
+    sendError(res, new Error("Publish post not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Publish post endpoint is under development",
+    });
+  },
+);
+
+/**
+ * POST /posts/:id/unpublish
+ * Unpublish a post
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.post(
+  "/posts/:id/unpublish",
+  authorizePermission("post.publish"),
+  async (req, res, next) => {
+    sendError(res, new Error("Unpublish post not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Unpublish post endpoint is under development",
+    });
+  },
+);
+
+/**
+ * POST /posts/:id/schedule
+ * Schedule a post
+ * Future: authentication, admin authorization, validation, CSRF, controller
+ */
+router.post(
+  "/posts/:id/schedule",
+  authorizePermission("post.schedule"),
+  async (req, res, next) => {
+    sendError(res, new Error("Schedule post not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Schedule post endpoint is under development",
+    });
+  },
+);
+
+/**
+ * POST /posts/:id/restore
+ * Restore post from trash
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.post(
+  "/posts/:id/restore",
+  authorizePermission("post.restore"),
+  async (req, res, next) => {
+    sendError(res, new Error("Restore post not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Restore post endpoint is under development",
+    });
+  },
+);
+
+/**
+ * POST /posts/:id/revisions/:revisionId/restore
+ * Restore a specific revision
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.post(
+  "/posts/:id/revisions/:revisionId/restore",
+  authorizePermission("post.restore"),
+  async (req, res, next) => {
+    sendError(res, new Error("Restore revision not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Restore revision endpoint is under development",
+    });
+  },
+);
+
+// ============================================================================
+// CATEGORY MANAGEMENT ROUTES
+// ============================================================================
+
+/**
+ * GET /categories
+ *
+ * Admin category list.
+ *
+ * Middleware chain:
+ *   authenticate
+ *   -> authorizeAdmin
+ *   -> category.read
+ *   -> query validation
+ *   -> controller
+ */
+router.get(
+  "/categories",
+  authorizePermission("category.read"),
+  validateQuery(listAdminCategoriesQuery),
+  categoryController.listAdminCategories,
+);
+
+/**
+ * GET /categories/count
+ *
+ * Admin category count.
+ */
+router.get(
+  "/categories/count",
+  authorizePermission("category.read"),
+  validateQuery(countAdminCategoriesQuery),
+  categoryController.countAdminCategories,
+);
+
+/**
+ * GET /categories/uuid/:uuid
+ *
+ * Get an admin category by UUID.
+ *
+ * Must appear before /categories/:id.
+ */
+router.get(
+  "/categories/uuid/:uuid",
+  authorizePermission("category.read"),
+  validateParams((params) => ({
+    uuid: categoryUuidParam(params.uuid),
+  })),
+  categoryController.getAdminCategoryByUuid,
+);
+
+/**
+ * GET /categories/:id/edit
+ *
+ * Existing HTML edit-form route.
+ *
+ * Kept intentionally separate from the JSON/API controller.
+ */
+router.get(
+  "/categories/:id/edit",
+  authorizePermission("category.update"),
+  async (req, res, next) => {
+    sendError(res, new Error("Edit category form not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Edit category form is under development",
+    });
+  },
+);
+
+/**
+ * GET /categories/new
+ *
+ * Existing HTML create-form route.
+ */
+router.get(
+  "/categories/new",
+  authorizePermission("category.create"),
+  async (req, res, next) => {
+    sendError(res, new Error("New category form not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "New category form is under development",
+    });
+  },
+);
+
+/**
+ * GET /categories/:id
+ *
+ * Admin category details.
+ *
+ * Must appear after literal/special routes.
+ */
+router.get(
+  "/categories/:id",
+  authorizePermission("category.read"),
+  validateParams((params) => ({
+    id: categoryIdParam(params.id),
+  })),
+  categoryController.getAdminCategory,
+);
+
+/**
+ * POST /categories
+ *
+ * Create category.
+ */
+router.post(
+  "/categories",
+  authorizePermission("category.create"),
+  validateBody(createCategoryBody),
+  categoryController.createCategory,
+);
+
+/**
+ * PATCH /categories/:id
+ *
+ * Update category.
+ */
+router.patch(
+  "/categories/:id",
+  authorizePermission("category.update"),
+  validateParamsAndBody(
+    (params) => ({
+      id: categoryIdParam(params.id),
+    }),
+    updateCategoryBody,
+  ),
+  categoryController.updateCategory,
+);
+
+/**
+ * DELETE /categories/:id
+ *
+ * Soft-delete category.
+ */
+router.delete(
+  "/categories/:id",
+  authorizePermission("category.delete"),
+  validateParams((params) => ({
+    id: categoryIdParam(params.id),
+  })),
+  categoryController.deleteCategory,
+);
+
+/**
+ * POST /categories/:id/restore
+ *
+ * Restore a soft-deleted category.
+ */
+router.post(
+  "/categories/:id/restore",
+  authorizePermission("category.update"),
+  validateParams((params) => ({
+    id: categoryIdParam(params.id),
+  })),
+  categoryController.restoreCategory,
+);
+
+/**
+ * POST /categories/:id/activate
+ *
+ * Activate category.
+ */
+router.post(
+  "/categories/:id/activate",
+  authorizePermission("category.update"),
+  validateParams((params) => ({
+    id: categoryIdParam(params.id),
+  })),
+  categoryController.activateCategory,
+);
+
+/**
+ * POST /categories/:id/deactivate
+ *
+ * Deactivate category.
+ */
+router.post(
+  "/categories/:id/deactivate",
+  authorizePermission("category.update"),
+  validateParams((params) => ({
+    id: categoryIdParam(params.id),
+  })),
+  categoryController.deactivateCategory,
+);
+
+// TAG MANAGEMENT ROUTES
+// ============================================================================
+
+/**
+ * GET /tags
+ * List tags
+ * Future: authentication, admin authorization, controller
+ */
+router.get("/tags", authorizePermission("tag.read"), async (req, res, next) => {
+  sendError(res, new Error("Get tags not yet implemented"), {
+    statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+    message: "Tags endpoint is under development",
+  });
+});
+
+/**
+ * GET /tags/new
+ * New tag form
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  "/tags/new",
+  authorizePermission("tag.create"),
+  async (req, res, next) => {
+    sendError(res, new Error("New tag form not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "New tag form is under development",
+    });
+  },
+);
+
+/**
+ * GET /tags/:id/edit
+ * Edit tag form
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  "/tags/:id/edit",
+  authorizePermission("tag.update"),
+  async (req, res, next) => {
+    sendError(res, new Error("Edit tag form not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Edit tag form is under development",
+    });
+  },
+);
+
+/**
+ * POST /tags
+ * Create a tag
+ * Future: authentication, admin authorization, validation, CSRF, controller
+ */
+router.post(
+  "/tags",
+  authorizePermission("tag.create"),
+  async (req, res, next) => {
+    sendError(res, new Error("Create tag not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Create tag endpoint is under development",
+    });
+  },
+);
+
+/**
+ * PATCH /tags/:id
+ * Update a tag
+ * Future: authentication, admin authorization, validation, CSRF, controller
+ */
+router.patch(
+  "/tags/:id",
+  authorizePermission("tag.update"),
+  async (req, res, next) => {
+    sendError(res, new Error("Update tag not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Update tag endpoint is under development",
+    });
+  },
+);
+
+/**
+ * DELETE /tags/:id
+ * Delete a tag
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.delete(
+  "/tags/:id",
+  authorizePermission("tag.delete"),
+  async (req, res, next) => {
+    sendError(res, new Error("Delete tag not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Delete tag endpoint is under development",
+    });
+  },
+);
+
+// ============================================================================
+// MEDIA MANAGEMENT ROUTES
+// ============================================================================
+
+/**
+ * GET /media
+ * List media
+ * Future: authentication, admin authorization, pagination, controller
+ */
+router.get(
+  "/media",
+  authorizePermission("media.read"),
+  async (req, res, next) => {
+    sendError(res, new Error("Get media list not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Media list endpoint is under development",
+    });
+  },
+);
+
+/**
+ * GET /media/:id
+ * Get a media item
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  "/media/:id",
+  authorizePermission("media.read"),
+  async (req, res, next) => {
+    sendError(res, new Error("Get media item not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Media item endpoint is under development",
+    });
+  },
+);
+
+/**
+ * POST /media
+ * Upload media (file upload)
+ * Future: authentication, admin authorization, upload middleware, validation, controller
+ */
+router.post(
+  "/media",
+  authorizePermission("media.create"),
+  async (req, res, next) => {
+    sendError(res, new Error("Upload media not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Media upload endpoint is under development",
+    });
+  },
+);
+
+/**
+ * PATCH /media/:id
+ * Update media metadata
+ * Future: authentication, admin authorization, validation, CSRF, controller
+ */
+router.patch(
+  "/media/:id",
+  authorizePermission("media.update"),
+  async (req, res, next) => {
+    sendError(res, new Error("Update media not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Update media endpoint is under development",
+    });
+  },
+);
+
+/**
+ * DELETE /media/:id
+ * Delete media
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.delete(
+  "/media/:id",
+  authorizePermission("media.delete"),
+  async (req, res, next) => {
+    sendError(res, new Error("Delete media not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Delete media endpoint is under development",
+    });
+  },
+);
+
+// ============================================================================
+// COMMENT MODERATION ROUTES
+// ============================================================================
+
+/**
+ * GET /comments
+ * List comments (with filters)
+ * Future: authentication, admin authorization, pagination, controller
+ */
+router.get(
+  "/comments",
+  authorizePermission("comment.read"),
+  async (req, res, next) => {
+    sendError(res, new Error("Get comments list not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Comments list endpoint is under development",
+    });
+  },
+);
+
+/**
+ * GET /comments/:id
+ * Get a single comment
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  "/comments/:id",
+  authorizePermission("comment.read"),
+  async (req, res, next) => {
+    sendError(res, new Error("Get comment not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Comment endpoint is under development",
+    });
+  },
+);
+
+/**
+ * POST /comments/:id/approve
+ * Approve a comment
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.post(
+  "/comments/:id/approve",
+  authorizePermission("comment.approve"),
+  async (req, res, next) => {
+    sendError(res, new Error("Approve comment not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Approve comment endpoint is under development",
+    });
+  },
+);
+
+/**
+ * POST /comments/:id/reject
+ * Reject a comment
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.post(
+  "/comments/:id/reject",
+  authorizePermission("comment.reject"),
+  async (req, res, next) => {
+    sendError(res, new Error("Reject comment not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Reject comment endpoint is under development",
+    });
+  },
+);
+
+/**
+ * POST /comments/:id/spam
+ * Mark comment as spam
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.post(
+  "/comments/:id/spam",
+  authorizePermission("comment.reject"),
+  async (req, res, next) => {
+    sendError(res, new Error("Mark comment as spam not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Mark comment as spam endpoint is under development",
+    });
+  },
+);
+
+/**
+ * DELETE /comments/:id
+ * Delete a comment
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.delete(
+  "/comments/:id",
+  authorizePermission("comment.delete"),
+  async (req, res, next) => {
+    sendError(res, new Error("Delete comment not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Delete comment endpoint is under development",
+    });
+  },
+);
+
+// ============================================================================
+// USER MANAGEMENT ROUTES
+// ============================================================================
+
+/**
+ * GET /users
+ * List users
+ * Future: authentication, admin authorization, pagination, controller
+ */
+router.get(
+  "/users",
+  authorizePermission("user.read"),
+  async (req, res, next) => {
+    sendError(res, new Error("Get users list not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Users list endpoint is under development",
+    });
+  },
+);
+
+/**
+ * GET /users/:id
+ * Get a user
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  "/users/:id",
+  authorizePermission("user.read"),
+  async (req, res, next) => {
+    sendError(res, new Error("Get user not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "User endpoint is under development",
+    });
+  },
+);
+
+/**
+ * GET /users/:id/edit
+ * Edit user form
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  "/users/:id/edit",
+  authorizePermission("user.update"),
+  async (req, res, next) => {
+    sendError(res, new Error("Edit user form not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Edit user form is under development",
+    });
+  },
+);
+
+/**
+ * PATCH /users/:id
+ * Update user
+ * Future: authentication, admin authorization, validation, CSRF, controller
+ */
+router.patch(
+  "/users/:id",
+  authorizePermission("user.update"),
+  async (req, res, next) => {
+    sendError(res, new Error("Update user not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Update user endpoint is under development",
+    });
+  },
+);
+
+/**
+ * POST /users/:id/suspend
+ * Suspend a user
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.post(
+  "/users/:id/suspend",
+  authorizePermission("user.suspend"),
+  async (req, res, next) => {
+    sendError(res, new Error("Suspend user not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Suspend user endpoint is under development",
+    });
+  },
+);
+
+/**
+ * POST /users/:id/unsuspend
+ * Unsuspend a user
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.post(
+  "/users/:id/unsuspend",
+  authorizePermission("user.suspend"),
+  async (req, res, next) => {
+    sendError(res, new Error("Unsuspend user not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Unsuspend user endpoint is under development",
+    });
+  },
+);
+
+/**
+ * POST /users/:id/verify
+ * Verify a user
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.post(
+  "/users/:id/verify",
+  authorizePermission("user.verify"),
+  async (req, res, next) => {
+    sendError(res, new Error("Verify user not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Verify user endpoint is under development",
+    });
+  },
+);
+
+/**
+ * POST /users/:id/force-password-reset
+ * Force password reset
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.post(
+  "/users/:id/force-password-reset",
+  authorizePermission("user.force_password_reset"),
+  async (req, res, next) => {
+    sendError(res, new Error("Force password reset not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Force password reset endpoint is under development",
+    });
+  },
+);
+
+// ============================================================================
+// ROLES & PERMISSIONS ROUTES (RBAC management)
+// ============================================================================
+
+/**
+ * GET /roles
+ * List roles
+ */
+router.get("/roles", authorizePermission("role.read"), listRoles);
+
+/**
+ * GET /roles/:id/permissions
+ * List permissions assigned to a role
+ */
+router.get(
+  "/roles/:id/permissions",
+  authorizePermission("role.permission.read"),
+  listRolePermissions,
+);
+
+/**
+ * POST /roles/:id/permissions
+ * Grant a permission to a role
+ */
+router.post(
+  "/roles/:id/permissions",
+  authorizePermission("role.permission.grant"),
+  grantPermissionToRole,
+);
+
+/**
+ * DELETE /roles/:id/permissions/:permissionId
+ * Revoke a permission from a role
+ */
+router.delete(
+  "/roles/:id/permissions/:permissionId",
+  authorizePermission("role.permission.revoke"),
+  revokePermissionFromRole,
+);
+
+/**
+ * GET /roles/:id
+ * Get a role
+ */
+router.get("/roles/:id", authorizePermission("role.read"), getRole);
+
+/**
+ * POST /roles
+ * Create a role
+ */
+router.post("/roles", authorizePermission("role.create"), createRole);
+
+/**
+ * PATCH /roles/:id
+ * Update a role
+ */
+router.patch("/roles/:id", authorizePermission("role.update"), updateRole);
+
+/**
+ * DELETE /roles/:id
+ * Delete a role
+ */
+router.delete("/roles/:id", authorizePermission("role.delete"), deleteRole);
+
+/**
+ * GET /permissions
+ * List permissions
+ */
+router.get(
+  "/permissions",
+  authorizePermission("permission.read"),
+  listPermissions,
+);
+
+// ============================================================================
+// REPORT MANAGEMENT ROUTES
+// ============================================================================
+
+/**
+ * GET /reports
+ * List reports
+ * Future: authentication, admin authorization, pagination, controller
+ */
+router.get(
+  "/reports",
+  authorizePermission("report.read"),
+  async (req, res, next) => {
+    sendError(res, new Error("Get reports not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Reports endpoint is under development",
+    });
+  },
+);
+
+/**
+ * GET /reports/:id
+ * Get a report
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  "/reports/:id",
+  authorizePermission("report.read"),
+  async (req, res, next) => {
+    sendError(res, new Error("Get report not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Report endpoint is under development",
+    });
+  },
+);
+
+/**
+ * POST /reports/:id/resolve
+ * Resolve a report
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.post(
+  "/reports/:id/resolve",
+  authorizePermission("report.resolve"),
+  async (req, res, next) => {
+    sendError(res, new Error("Resolve report not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Resolve report endpoint is under development",
+    });
+  },
+);
+
+/**
+ * POST /reports/:id/reject
+ * Reject a report
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.post(
+  "/reports/:id/reject",
+  authorizePermission("report.dismiss"),
+  async (req, res, next) => {
+    sendError(res, new Error("Reject report not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Reject report endpoint is under development",
+    });
+  },
+);
+
+// ============================================================================
+// NOTIFICATION ROUTES (Admin)
+// ============================================================================
+
+/**
+ * GET /notifications
+ * List admin/system notifications
+ * Future: authentication, admin authorization, pagination, controller
+ */
+router.get(
+  "/notifications",
+  authorizePermission("notification.read"),
+  async (req, res, next) => {
+    sendError(res, new Error("Get admin notifications not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Admin notifications endpoint is under development",
+    });
+  },
+);
+
+/**
+ * POST /notifications
+ * Create a notification (system announcement)
+ * Future: authentication, admin authorization, validation, CSRF, controller
+ */
+router.post(
+  "/notifications",
+  authorizePermission("notification.create"),
+  async (req, res, next) => {
+    sendError(res, new Error("Create notification not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Create notification endpoint is under development",
+    });
+  },
+);
+
+/**
+ * POST /notifications/broadcast
+ * Broadcast notification to all users
+ * Future: authentication, admin authorization, validation, CSRF, controller
+ */
+router.post(
+  "/notifications/broadcast",
+  authorizePermission("notification.create"),
+  async (req, res, next) => {
+    sendError(res, new Error("Broadcast notification not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Broadcast notification endpoint is under development",
+    });
+  },
+);
+
+/**
+ * DELETE /notifications/:id
+ * Delete a notification
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.delete(
+  "/notifications/:id",
+  authorizePermission("notification.delete"),
+  async (req, res, next) => {
+    sendError(res, new Error("Delete notification not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Delete notification endpoint is under development",
+    });
+  },
+);
+
+// ============================================================================
+// SETTINGS ROUTES
+// ============================================================================
+
+/**
+ * GET /settings
+ * Get site settings
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  "/settings",
+  authorizePermission("setting.read"),
+  async (req, res, next) => {
+    sendError(res, new Error("Get settings not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Settings endpoint is under development",
+    });
+  },
+);
+
+/**
+ * PATCH /settings
+ * Update site settings
+ * Future: authentication, admin authorization, validation, CSRF, controller
+ */
+router.patch(
+  "/settings",
+  authorizePermission("setting.update"),
+  async (req, res, next) => {
+    sendError(res, new Error("Update settings not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Update settings endpoint is under development",
+    });
+  },
+);
+
+// ============================================================================
+// ANALYTICS ROUTES
+// ============================================================================
+
+/**
+ * GET /analytics
+ * Main analytics dashboard
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  "/analytics",
+  authorizePermission("analytics.read"),
+  async (req, res, next) => {
+    sendError(res, new Error("Get analytics not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Analytics endpoint is under development",
+    });
+  },
+);
+
+/**
+ * GET /analytics/traffic
+ * Traffic analytics
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  "/analytics/traffic",
+  authorizePermission("analytics.read"),
+  async (req, res, next) => {
+    sendError(res, new Error("Get traffic analytics not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Traffic analytics endpoint is under development",
+    });
+  },
+);
+
+/**
+ * GET /analytics/posts
+ * Post analytics
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  "/analytics/posts",
+  authorizePermission("analytics.read"),
+  async (req, res, next) => {
+    sendError(res, new Error("Get post analytics not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Post analytics endpoint is under development",
+    });
+  },
+);
+
+/**
+ * GET /analytics/users
+ * User analytics
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  "/analytics/users",
+  authorizePermission("analytics.read"),
+  async (req, res, next) => {
+    sendError(res, new Error("Get user analytics not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "User analytics endpoint is under development",
+    });
+  },
+);
+
+// ============================================================================
+// AUDIT LOG ROUTES
+// ============================================================================
+
+/**
+ * GET /audit-logs
+ * List audit logs
+ * Future: authentication, admin authorization, pagination, controller
+ */
+router.get(
+  "/audit-logs",
+  authorizePermission("audit_log.read"),
+  async (req, res, next) => {
+    sendError(res, new Error("Get audit logs not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Audit logs endpoint is under development",
+    });
+  },
+);
+
+/**
+ * GET /audit-logs/:id
+ * Get a single audit log entry
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  "/audit-logs/:id",
+  authorizePermission("audit_log.read"),
+  async (req, res, next) => {
+    sendError(res, new Error("Get audit log entry not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Audit log entry endpoint is under development",
+    });
+  },
+);
+
+// ============================================================================
+// SECURITY ROUTES (Admin)
+// ============================================================================
+
+/**
+ * GET /security
+ * Admin security overview
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  "/security",
+  authorizePermission("security.read"),
+  async (req, res, next) => {
+    sendError(res, new Error("Admin security overview not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Admin security endpoint is under development",
+    });
+  },
+);
+
+/**
+ * GET /security/events
+ * Security events
+ * Future: authentication, admin authorization, pagination, controller
+ */
+router.get(
+  "/security/events",
+  authorizePermission("security.read"),
+  async (req, res, next) => {
+    sendError(res, new Error("Get security events not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Security events endpoint is under development",
+    });
+  },
+);
+
+/**
+ * GET /security/sessions
+ * Active sessions (admin view)
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  "/security/sessions",
+  authorizePermission("security.sessions.read"),
+  async (req, res, next) => {
+    sendError(res, new Error("Get active sessions not yet implemented"), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: "Active sessions endpoint is under development",
+    });
+  },
+);
+
+// ============================================================================
+// EXPORTS
+// ============================================================================
+
+export default router;
+export { router };

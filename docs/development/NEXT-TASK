@@ -1,0 +1,766 @@
+TESNOW — NEXT TASK
+
+«Project: Tesnow
+Document: Next Development Task
+Purpose: Tesnow development-এর এই মুহূর্তের exact next action নির্ধারণ করা।
+Rule: এই document সবসময় current task অনুযায়ী update করতে হবে।»
+
+---
+
+1. Current State
+
+Project: Tesnow
+Path: ~/Tesnow
+
+Current Phase:
+PHASE 0 — Project Safety
+
+Current Focus:
+Project Safety + Architecture Audit
+
+Development Strategy:
+Audit → Design → Implement → Validate → Test
+→ Security Review → Performance Review → Commit → Document
+
+---
+
+2. Current Project Baseline
+
+বর্তমান documented baseline:
+
+Total files: 502
+Files containing code: 145
+Empty files: 357
+
+এই সংখ্যা project completion percentage হিসেবে ব্যবহার করা যাবে না।
+
+কারণ empty files-এর মধ্যে থাকতে পারে:
+
+- Documentation
+- Configuration
+- Views
+- CSS
+- Frontend assets
+- YAML
+- Placeholder files
+- Future modules
+
+---
+
+3. Database Baseline
+
+বর্তমান database migration baseline:
+
+Migrations:
+001–025
+
+Pending migrations:
+0
+
+Database:
+Up to date
+
+Existing database schema audit না করে নতুন schema পরিবর্তন করা যাবে না।
+
+---
+
+4. Immediate Objective
+
+বর্তমান immediate objective:
+
+«Existing Tesnow architecture audit করে implementation-এর জন্য নিরাপদ baseline তৈরি করা।»
+
+এখনই অনেক নতুন file implement করা যাবে না।
+
+প্রথমে existing implementation বুঝতে হবে।
+
+---
+
+5. EXACT NEXT TASK
+
+TASK: Core Application Architecture Audit
+
+প্রথমে নিচের core files audit করতে হবে:
+
+package.json
+
+server.js
+
+app/core/app.js
+
+app/core/container.js
+
+app/core/errors.js
+
+app/core/logger.js
+
+app/config/index.js
+
+উদ্দেশ্য
+
+এই files থেকে বুঝতে হবে:
+
+- Application কীভাবে boot হয়
+- HTTP server কীভাবে start হয়
+- Express/app initialization কোথায় হয়
+- Dependency/container architecture কী
+- Error handling কীভাবে কাজ করে
+- Logger কীভাবে কাজ করে
+- Configuration কীভাবে load/validate হয়
+- Environment variables কীভাবে ব্যবহৃত হয়
+- Shutdown কীভাবে handle হয়
+- Existing dependencies কী
+- Existing architecture-এর সাথে future modules কীভাবে integrate করবে
+
+---
+
+6. BEFORE ANY EDIT — Safety Check
+
+কোনো file edit করার আগে Termux-এ:
+
+cd ~/Tesnow
+
+git status --short
+
+git branch --show-current
+
+git log --oneline -5
+
+git ls-files .env
+
+Expected
+
+".env" যদি tracked থাকে, তাহলে আগে সেটি ঠিক করতে হবে।
+
+".env" কখনও ChatGPT বা DeepSeek-এ paste করা যাবে না।
+
+---
+
+7. Optional Project Backup
+
+Project-এ বড় পরিবর্তন করার আগে archive backup নেওয়া recommended।
+
+cd ~
+
+command -v tar
+
+tar --exclude='node_modules' \
+    --exclude='.git' \
+    -czf "Tesnow-backup-$(date +%Y%m%d-%H%M%S).tar.gz" \
+    -C ~ Tesnow
+
+Backup successful কিনা verify:
+
+ls -lh ~/Tesnow-backup-*.tar.gz
+
+---
+
+8. AUDIT — Batch 1
+
+প্রথমে এই commands চালাতে হবে:
+
+cd ~/Tesnow
+
+printf '\n===== PACKAGE =====\n'
+cat package.json
+
+printf '\n===== SERVER =====\n'
+sed -n '1,240p' server.js
+
+printf '\n===== APP CORE =====\n'
+sed -n '1,300p' app/core/app.js
+
+---
+
+9. AUDIT — Batch 2
+
+তারপর:
+
+printf '\n===== CONTAINER =====\n'
+sed -n '1,300p' app/core/container.js
+
+printf '\n===== ERRORS =====\n'
+sed -n '1,300p' app/core/errors.js
+
+printf '\n===== LOGGER =====\n'
+sed -n '1,300p' app/core/logger.js
+
+printf '\n===== CONFIG =====\n'
+sed -n '1,260p' app/config/index.js
+
+---
+
+10. What To Send Back
+
+উপরের commands-এর output ChatGPT-তে পাঠাতে হবে।
+
+IMPORTANT
+
+এই files-এর output পাঠানোর আগে নিশ্চিত করতে হবে যে কোনো secret নেই।
+
+বিশেষ করে:
+
+API keys
+Passwords
+Tokens
+Database credentials
+JWT secrets
+Session secrets
+Private keys
+Encryption keys
+Webhook secrets
+
+থাকলে value mask করতে হবে।
+
+উদাহরণ:
+
+DATABASE_PASSWORD=********
+JWT_SECRET=********
+API_KEY=********
+
+---
+
+11. Architecture Audit Questions
+
+এই audit-এর পরে নিচের প্রশ্নগুলোর উত্তর বের করতে হবে।
+
+Application Boot
+
+- Application কোথা থেকে start হয়?
+- "server.js" এবং "app/core/app.js"-এর responsibility কী?
+- App initialization এক জায়গায় centralized কিনা?
+- Middleware order সঠিক কিনা?
+- Routes কখন register হয়?
+
+---
+
+Dependency Container
+
+- "container.js" কেন আছে?
+- কোন dependencies সেখানে register হয়?
+- Singleton এবং request-scoped dependency কীভাবে handle হয়?
+- Circular dependency risk আছে কিনা?
+- Authentication services কীভাবে resolve হবে?
+
+---
+
+Error Handling
+
+Audit করতে হবে:
+
+- Custom error class আছে কিনা
+- HTTP status mapping কীভাবে হয়
+- Public error message এবং internal error আলাদা কিনা
+- Stack trace user-এর কাছে leak করে কিনা
+- Database error leak করে কিনা
+- "cause" বা nested error unsafeভাবে expose হয় কিনা
+- Error middleware কোথায়
+- Async error কীভাবে handle হয়
+
+---
+
+Logging
+
+Audit করতে হবে:
+
+- Logger কোন library ব্যবহার করছে
+- Structured logging আছে কিনা
+- Request ID আছে কিনা
+- Error logging কীভাবে হয়
+- Password/token/secret log হওয়ার সম্ভাবনা আছে কিনা
+- IP logging কীভাবে হয়
+- Failed login logging safe কিনা
+- Log level configuration কীভাবে হয়
+
+---
+
+Configuration
+
+Audit করতে হবে:
+
+- ".env" কীভাবে load হয়
+- Environment validation আছে কিনা
+- Required configuration কী
+- Invalid configuration হলে application কী করে
+- Production এবং development configuration আলাদা কিনা
+- Secret source code-এ hardcoded কিনা
+
+---
+
+Shutdown
+
+Audit করতে হবে:
+
+- SIGTERM handling আছে কিনা
+- SIGINT handling আছে কিনা
+- HTTP server বন্ধ হয় কিনা
+- Database connection বন্ধ হয় কিনা
+- Redis/queue থাকলে সেগুলো বন্ধ হয় কিনা
+- Shutdown idempotent কিনা
+- Shutdown timeout bounded কিনা
+
+গুরুত্বপূর্ণ
+
+Graceful shutdown এমন হওয়া উচিত নয়:
+
+await server.close()
+↓
+তারপর 10 second wait
+
+বরং shutdown timeout এবং close operation concurrentভাবে bounded হওয়া উচিত।
+
+---
+
+Fatal Errors
+
+বিশেষভাবে check করতে হবে:
+
+uncaughtException
+unhandledRejection
+
+এগুলো হলে application-এর policy কী?
+
+Programmer/fatal error হলে successful exit code ব্যবহার করা যাবে না।
+
+---
+
+12. DO NOT MODIFY YET
+
+Architecture audit শেষ হওয়ার আগে নিচেরগুলো implement করা যাবে না:
+
+❌ সব Models
+❌ সব Validators
+❌ সব Controllers
+❌ সব API routes
+❌ সব Views
+❌ সব Services
+❌ সব Jobs
+❌ নতুন Database migrations
+❌ বড়-scale refactor
+❌ নতুন dependency
+
+কারণ architecture-এর actual contract আগে বুঝতে হবে।
+
+---
+
+13. DO NOT DELETE
+
+কোনো existing file audit-এর সময় delete করা যাবে না।
+
+বিশেষ করে:
+
+app/core/app.js.backup
+app/core/request-context.js.backup
+
+এবং suspicious file:
+
+app/repositories/a.txt
+
+এটিও audit না করে delete করা যাবে না।
+
+---
+
+14. Audit Deliverable
+
+Architecture audit-এর শেষে একটি ছোট report তৈরি করতে হবে:
+
+1. Current architecture
+2. Application boot flow
+3. Middleware flow
+4. Error handling flow
+5. Logging flow
+6. Configuration flow
+7. Shutdown flow
+8. Dependency/container flow
+9. Security risks
+10. Performance risks
+11. Required fixes
+12. No-change areas
+
+---
+
+15. Audit Completion Criteria
+
+এই task তখনই complete হবে যখন:
+
+[ ] package.json reviewed
+[ ] server.js reviewed
+[ ] app.js reviewed
+[ ] container.js reviewed
+[ ] errors.js reviewed
+[ ] logger.js reviewed
+[ ] config/index.js reviewed
+
+[ ] Boot flow understood
+[ ] Dependency flow understood
+[ ] Error flow understood
+[ ] Logging flow understood
+[ ] Configuration flow understood
+[ ] Shutdown flow understood
+
+[ ] Security issues identified
+[ ] Performance issues identified
+[ ] Existing code preservation plan defined
+
+---
+
+16. After Architecture Audit
+
+Audit complete হলে next step হবে:
+
+Core Foundation Hardening
+
+সম্ভাব্য sequence:
+
+Configuration
+↓
+Error Handling
+↓
+Logging
+↓
+Request Context
+↓
+Graceful Shutdown
+↓
+Fatal Error Handling
+↓
+Core Integration Test
+
+কোনো implementation শুরু করার আগে audit result অনুযায়ী exact order নির্ধারণ করতে হবে।
+
+---
+
+17. Then Authentication Vertical Slice
+
+Core foundation stable হওয়ার পরে:
+
+Database Contract
+↓
+User Model
+↓
+User Repository
+↓
+Auth Validator
+↓
+Password Service
+↓
+Auth Service
+↓
+Session Service
+↓
+Authentication Middleware
+↓
+Auth Controller
+↓
+Auth Route
+↓
+Integration Test
+↓
+Security Test
+
+তারপর:
+
+RBAC
+
+---
+
+18. Development Rule
+
+প্রতিটি logical task-এর জন্য:
+
+1. Audit
+2. Design
+3. Implement
+4. Syntax Check
+5. Test
+6. Security Review
+7. Performance Review
+8. Git Commit
+9. Documentation Update
+10. Next Task
+
+---
+
+19. One-File Rule
+
+যেখানে practical, একবারে একটি file বা tightly-coupled ছোট module implement করতে হবে।
+
+উদাহরণ:
+
+app/core/errors.js
+
+এর জন্য:
+
+Review
+↓
+Implement
+↓
+node --check
+↓
+Integration test
+↓
+Security review
+↓
+Commit
+
+তারপর পরবর্তী file।
+
+---
+
+20. DeepSeek Rule
+
+DeepSeek local project দেখতে বা execute করতে পারে না।
+
+তাই DeepSeek-কে কখনও বলা যাবে না:
+
+"Inspect my local repository."
+"Run this command."
+"Check my local files."
+"Modify my project."
+
+বরং ChatGPT audit-এর ভিত্তিতে DeepSeek-কে exact relevant file content এবং exact task দিয়ে:
+
+Generate the complete copy-paste-ready file.
+
+ধরনের prompt দিতে হবে।
+
+DeepSeek output:
+
+Generate
+↓
+Copy
+↓
+Paste
+↓
+Termux Validate
+↓
+Report output
+↓
+Review
+
+---
+
+21. No Unnecessary Rewrite
+
+Existing code working হলে শুধু নতুন architecture পছন্দ হওয়ার কারণে rewrite করা যাবে না।
+
+পরিবর্তনের justification থাকতে হবে:
+
+Bug
+Security
+Correctness
+Maintainability
+Compatibility
+Performance
+Scalability
+
+---
+
+22. No Premature Optimization
+
+Performance improvement-এর ক্ষেত্রে:
+
+Measure
+↓
+Identify bottleneck
+↓
+Optimize
+↓
+Measure again
+
+অনুসরণ করতে হবে।
+
+Benchmark ছাড়া performance claim করা যাবে না।
+
+---
+
+23. Security Gate
+
+Feature complete মানেই task complete নয়।
+
+Final status:
+
+Implemented
+↓
+Reviewed
+↓
+Tested
+↓
+Security Reviewed
+↓
+Performance Reviewed
+↓
+Completed
+
+---
+
+24. Git Gate
+
+Meaningful task complete হলে:
+
+cd ~/Tesnow
+
+git status --short
+
+git diff --check
+
+git diff --stat
+
+তারপর review করে commit করতে হবে।
+
+Commit message example:
+
+git add <specific-files>
+git commit -m "chore: audit core application architecture"
+
+শুধু বাস্তবে করা কাজ অনুযায়ী commit message দিতে হবে।
+
+---
+
+25. Documentation Gate
+
+Task complete হওয়ার পরে:
+
+CURRENT-STATUS.md
+CHANGELOG.md
+NEXT-TASK.md
+
+প্রয়োজনে update করতে হবে।
+
+যদি architectural decision পরিবর্তন হয়:
+
+DECISIONS.md
+
+update করতে হবে।
+
+---
+
+26. New Chat Continuation Protocol
+
+নতুন ChatGPT chat/session শুরু হলে এই files থেকে context restore করতে হবে:
+
+docs/development/MASTER-PLAN.md
+docs/development/CURRENT-STATUS.md
+docs/development/DECISIONS.md
+docs/development/CHANGELOG.md
+docs/development/NEXT-TASK.md
+
+প্রথমে:
+
+NEXT-TASK.md
+CURRENT-STATUS.md
+
+দেখলেই current কাজ বোঝা উচিত।
+
+প্রয়োজনে:
+
+MASTER-PLAN.md
+DECISIONS.md
+CHANGELOG.md
+
+দিয়ে historical context নেওয়া হবে।
+
+---
+
+27. New Chat Safety Rule
+
+নতুন chat-এ development continue করার সময়:
+
+Do not assume unseen files.
+Do not invent existing code.
+Do not delete existing files.
+Do not rewrite working modules without audit.
+Do not expose secrets.
+
+প্রয়োজনীয় file content user-এর কাছ থেকে নিতে হবে।
+
+---
+
+28. Current User Action
+
+এখন শুধু নিচের কাজগুলো করো:
+
+Step 1
+
+cd ~/Tesnow
+
+Step 2
+
+git status --short
+git branch --show-current
+git log --oneline -5
+git ls-files .env
+
+Step 3
+
+Audit Batch 1 চালাও:
+
+printf '\n===== PACKAGE =====\n'
+cat package.json
+
+printf '\n===== SERVER =====\n'
+sed -n '1,240p' server.js
+
+printf '\n===== APP CORE =====\n'
+sed -n '1,300p' app/core/app.js
+
+Step 4
+
+তারপর Audit Batch 2:
+
+printf '\n===== CONTAINER =====\n'
+sed -n '1,300p' app/core/container.js
+
+printf '\n===== ERRORS =====\n'
+sed -n '1,300p' app/core/errors.js
+
+printf '\n===== LOGGER =====\n'
+sed -n '1,300p' app/core/logger.js
+
+printf '\n===== CONFIG =====\n'
+sed -n '1,260p' app/config/index.js
+
+Step 5
+
+Output ChatGPT-তে পাঠাও।
+
+এখন কোনো code change করবে না।
+
+---
+
+29. Current Status
+
+Task: Core Application Architecture Audit
+Status: [ ] Not Started
+
+Next action:
+Run Audit Batch 1 + Batch 2
+
+Expected output:
+Core architecture audit report
+
+After that:
+Core Foundation Hardening plan
+
+---
+
+30. Last Updated
+
+Date: 2026-09-10
+Current Phase: PHASE 0 — Project Safety
+Current Task: Core Application Architecture Audit
+Status: Active
+
+---
+
+FINAL RULE
+
+«Do not rush to implement. First understand the existing system.
+
+Audit → Design → Implement → Validate → Test → Security → Performance → Commit → Document → Next Task»
+
+Tesnow-এর লক্ষ্য শুধু বেশি code লেখা নয়।
+
+লক্ষ্য:
+
+«Secure + Maintainable + Testable + Scalable + Production-Ready Tesnow»

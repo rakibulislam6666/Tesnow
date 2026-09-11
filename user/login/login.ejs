@@ -1,0 +1,177 @@
+<%#
+  Tesnow Login View
+  - Expects (optionally):
+      error        {string}  server-side error message
+      email        {string}  prefill email
+      csrfToken    {string}  if backend uses CSRF
+      forgotUrl    {string}  optional known route
+      registerUrl  {string}  optional known route
+  - Do NOT assume any variable is provided.
+%>
+<%
+  const safeError    = typeof error     === 'string' ? error     : '';
+  const safeEmail    = typeof email     === 'string' ? email     : '';
+  const safeCsrf     = typeof csrfToken === 'string' ? csrfToken : '';
+  const safeForgot   = typeof forgotUrl   === 'string' && forgotUrl   ? forgotUrl   : null;
+  const safeRegister = typeof registerUrl === 'string' && registerUrl ? registerUrl : null;
+%>
+<!DOCTYPE html>
+<html lang="en" data-tesnow-page="login">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="theme-color" content="#12172b" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#f6f4ee" media="(prefers-color-scheme: light)" />
+  <meta name="robots" content="noindex" />
+  <title>Sign in · Tesnow</title>
+  <link rel="stylesheet" href="/user/login/login.css" />
+</head>
+<body class="tesnow-login">
+  <a class="skip-link" href="#login-form">Skip to sign-in form</a>
+
+  <main class="login-shell" role="main">
+    <section class="login-panel" aria-labelledby="login-heading">
+      <header class="brand">
+        <span class="brand__mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="28" height="28" focusable="false" aria-hidden="true">
+            <defs>
+              <linearGradient id="tesnowMark" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="var(--color-accent)" />
+                <stop offset="100%" stop-color="var(--color-accent-strong)" />
+              </linearGradient>
+            </defs>
+            <path d="M6 9h20M16 9v18" stroke="url(#tesnowMark)" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+            <circle cx="16" cy="9" r="3.2" fill="url(#tesnowMark)"/>
+          </svg>
+        </span>
+        <span class="brand__name">Tesnow</span>
+      </header>
+
+      <div class="heading-block">
+        <h1 id="login-heading" class="heading">Welcome back</h1>
+        <p class="subheading">Sign in to continue to your workspace.</p>
+      </div>
+
+      <div
+        id="login-status"
+        class="status"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        hidden
+      >
+        <span class="status__icon" aria-hidden="true"></span>
+        <span class="status__text" data-status-text></span>
+      </div>
+
+      <form
+        id="login-form"
+        class="form"
+        method="post"
+        action="/auth/login"
+        novalidate
+        autocomplete="on"
+      >
+        <% if (safeCsrf) { %>
+          <input type="hidden" name="_csrf" value="<%= safeCsrf %>" />
+        <% } %>
+
+        <div class="field" data-field="email">
+          <label class="field__label" for="login-email">Email or username</label>
+          <div class="field__control">
+            <input
+              id="login-email"
+              class="field__input"
+              name="email"
+              type="text"
+              inputmode="email"
+              autocomplete="username"
+              autocapitalize="none"
+              autocorrect="off"
+              spellcheck="false"
+              required
+              aria-required="true"
+              aria-describedby="login-email-error"
+              value="<%= safeEmail %>"
+            />
+          </div>
+          <p id="login-email-error" class="field__error" role="alert" hidden></p>
+        </div>
+
+        <div class="field" data-field="password">
+          <label class="field__label" for="login-password">Password</label>
+          <div class="field__control field__control--with-affix">
+            <input
+              id="login-password"
+              class="field__input"
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              required
+              aria-required="true"
+              aria-describedby="login-password-error"
+            />
+            <button
+              type="button"
+              class="field__affix"
+              id="toggle-password"
+              aria-label="Show password"
+              aria-pressed="false"
+              aria-controls="login-password"
+              tabindex="0"
+            >
+              <svg class="icon-eye" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+                <path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12Z"
+                      fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+                <circle cx="12" cy="12" r="2.6" fill="none" stroke="currentColor" stroke-width="1.6"/>
+              </svg>
+              <svg class="icon-eye-off" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" hidden>
+                <path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12Z"
+                      fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+                <circle cx="12" cy="12" r="2.6" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                <path d="M4 4l16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+              </svg>
+            </button>
+          </div>
+          <p id="login-password-error" class="field__error" role="alert" hidden></p>
+        </div>
+
+        <div class="row row--between">
+          <label class="checkbox" for="login-remember">
+            <input id="login-remember" name="remember" type="checkbox" value="1" />
+            <span class="checkbox__box" aria-hidden="true"></span>
+            <span class="checkbox__label">Remember me</span>
+          </label>
+
+          <% if (safeForgot) { %>
+            <a class="link" href="<%= safeForgot %>" rel="nofollow">Forgot password?</a>
+          <% } else { %>
+            <a class="link" href="#" data-tesnow-todo="forgot-url" hidden>Forgot password?</a>
+          <% } %>
+        </div>
+
+        <button id="login-submit" class="btn" type="submit">
+          <span class="btn__spinner" aria-hidden="true" hidden></span>
+          <span class="btn__label">Sign in</span>
+        </button>
+
+        <% if (safeRegister) { %>
+          <p class="alt-action">
+            New to Tesnow?
+            <a class="link" href="<%= safeRegister %>">Create an account</a>
+          </p>
+        <% } %>
+      </form>
+
+      <noscript>
+        <p class="noscript-note">
+          JavaScript is disabled. The sign-in form will still submit to <code>/auth/login</code>.
+        </p>
+      </noscript>
+    </section>
+  </main>
+
+  <script src="/user/login/login.js" defer></script>
+</body>
+</html>

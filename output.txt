@@ -1,0 +1,2755 @@
+===== 1. API ROUTES =====
+/**
+ * app/routes/api.routes.js
+ * API route composition layer for Tesnow
+ * RESTful API endpoints with versioning support
+ * 
+ * @module routes/api.routes
+ */
+
+import express from 'express';
+import { sendSuccess, sendError } from '../core/response.js';
+import { HTTP_STATUS } from '../core/constants.js';
+
+const router = express.Router();
+
+// ============================================================================
+// PUBLIC API RESOURCES
+// ============================================================================
+
+/**
+ * GET /posts
+ * List posts with filtering and pagination
+ * Future: authentication (optional), validation, controller
+ */
+router.get('/posts', async (req, res, next) => {
+    sendError(res, new Error('API posts list not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API posts list endpoint is under development',
+    });
+});
+
+/**
+ * GET /posts/:id
+ * Get a single post by ID
+ * Future: authentication (optional), controller
+ */
+router.get('/posts/:id', async (req, res, next) => {
+    sendError(res, new Error('API post by ID not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API post endpoint is under development',
+    });
+});
+
+/**
+ * GET /posts/slug/:slug
+ * Get a single post by slug
+ * Future: controller
+ */
+router.get('/posts/slug/:slug', async (req, res, next) => {
+    sendError(res, new Error('API post by slug not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API post by slug endpoint is under development',
+    });
+});
+
+/**
+ * GET /categories
+ * List categories
+ * Future: authentication (optional), controller
+ */
+router.get('/categories', async (req, res, next) => {
+    sendError(res, new Error('API categories list not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API categories endpoint is under development',
+    });
+});
+
+/**
+ * GET /categories/:id
+ * Get a single category
+ * Future: controller
+ */
+router.get('/categories/:id', async (req, res, next) => {
+    sendError(res, new Error('API category by ID not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API category endpoint is under development',
+    });
+});
+
+/**
+ * GET /tags
+ * List tags
+ * Future: authentication (optional), controller
+ */
+router.get('/tags', async (req, res, next) => {
+    sendError(res, new Error('API tags list not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API tags endpoint is under development',
+    });
+});
+
+/**
+ * GET /tags/:id
+ * Get a single tag
+ * Future: controller
+ */
+router.get('/tags/:id', async (req, res, next) => {
+    sendError(res, new Error('API tag by ID not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API tag endpoint is under development',
+    });
+});
+
+/**
+ * GET /search
+ * Search across posts, categories, tags
+ * Future: validation, search service, controller
+ */
+router.get('/search', async (req, res, next) => {
+    sendError(res, new Error('API search not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API search endpoint is under development',
+    });
+});
+
+// ============================================================================
+// AUTHENTICATED USER RESOURCES
+// ============================================================================
+
+/**
+ * GET /me
+ * Get current authenticated user
+ * Future: authentication middleware, controller
+ */
+router.get('/me', async (req, res, next) => {
+    sendError(res, new Error('API current user not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API current user endpoint is under development',
+    });
+});
+
+/**
+ * GET /user/posts
+ * Get current user's posts
+ * Future: authentication, pagination, controller
+ */
+router.get('/user/posts', async (req, res, next) => {
+    sendError(res, new Error('API user posts not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API user posts endpoint is under development',
+    });
+});
+
+/**
+ * GET /user/bookmarks
+ * Get current user's bookmarks
+ * Future: authentication, pagination, controller
+ */
+router.get('/user/bookmarks', async (req, res, next) => {
+    sendError(res, new Error('API user bookmarks not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API user bookmarks endpoint is under development',
+    });
+});
+
+/**
+ * POST /user/bookmarks/:postId
+ * Add a bookmark
+ * Future: authentication, validation, controller
+ */
+router.post('/user/bookmarks/:postId', async (req, res, next) => {
+    sendError(res, new Error('API add bookmark not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API add bookmark endpoint is under development',
+    });
+});
+
+/**
+ * DELETE /user/bookmarks/:postId
+ * Remove a bookmark
+ * Future: authentication, authorization, controller
+ */
+router.delete('/user/bookmarks/:postId', async (req, res, next) => {
+    sendError(res, new Error('API remove bookmark not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API remove bookmark endpoint is under development',
+    });
+});
+
+/**
+ * GET /user/notifications
+ * Get current user's notifications
+ * Future: authentication, pagination, controller
+ */
+router.get('/user/notifications', async (req, res, next) => {
+    sendError(res, new Error('API user notifications not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API user notifications endpoint is under development',
+    });
+});
+
+/**
+ * PATCH /user/notifications/:id/read
+ * Mark a notification as read
+ * Future: authentication, authorization, controller
+ */
+router.patch('/user/notifications/:id/read', async (req, res, next) => {
+    sendError(res, new Error('API mark notification read not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API mark notification read endpoint is under development',
+    });
+});
+
+/**
+ * POST /user/notifications/read-all
+ * Mark all notifications as read
+ * Future: authentication, controller
+ */
+router.post('/user/notifications/read-all', async (req, res, next) => {
+    sendError(res, new Error('API mark all notifications read not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API mark all notifications read endpoint is under development',
+    });
+});
+
+// ============================================================================
+// FUTURE API VERSIONING (placeholders)
+// ============================================================================
+
+// This router can be mounted under a version prefix (e.g., /api/v1).
+// Future versions can be added with separate routers.
+
+// ============================================================================
+// EXPORTS
+// ============================================================================
+
+export default router;
+export { router };
+===== 2. ADMIN ROUTES =====
+/**
+ * app/routes/admin.routes.js
+ * Admin route composition layer for Tesnow
+ * Protected administrative routes for content, user, and system management
+ *
+ * @module routes/admin.routes
+ */
+
+import express from 'express';
+import { sendSuccess, sendError } from '../core/response.js';
+import { HTTP_STATUS } from '../core/constants.js';
+import authenticate from '../middleware/authentication.js';
+import authorizeAdmin from '../middleware/authorization.js';
+import authorizePermission from '../middleware/rbac.js';
+import {
+  listRoles,
+  getRole,
+  createRole,
+  updateRole,
+  deleteRole,
+  listRolePermissions,
+  grantPermissionToRole,
+  revokePermissionFromRole,
+} from '../controllers/admin/role.controller.js';
+import { listPermissions } from '../controllers/admin/permission.controller.js';
+
+const router = express.Router();
+
+// Protect all admin routes with authentication + authorization
+router.use(authenticate);
+router.use(authorizeAdmin);
+
+// ============================================================================
+// DASHBOARD ROUTES
+// ============================================================================
+
+/**
+ * GET /
+ * Admin dashboard overview
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  '/',
+  authorizePermission('dashboard.read'),
+  async (req, res, next) => {
+    sendError(res, new Error('Admin dashboard not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Admin dashboard is under development',
+    });
+  }
+);
+
+// ============================================================================
+// POST MANAGEMENT ROUTES
+// ============================================================================
+
+/**
+ * GET /posts
+ * List all posts (with filtering, pagination)
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  '/posts',
+  authorizePermission('post.read'),
+  async (req, res, next) => {
+    sendError(res, new Error('Get admin posts list not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Admin posts list endpoint is under development',
+    });
+  }
+);
+
+/**
+ * GET /posts/new
+ * Render or prepare new post form
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  '/posts/new',
+  authorizePermission('post.create'),
+  async (req, res, next) => {
+    sendError(res, new Error('New post form not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'New post form is under development',
+    });
+  }
+);
+
+/**
+ * GET /posts/:id
+ * Get a single post (admin view)
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  '/posts/:id',
+  authorizePermission('post.read'),
+  async (req, res, next) => {
+    sendError(res, new Error('Get admin post not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Admin post endpoint is under development',
+    });
+  }
+);
+
+/**
+ * GET /posts/:id/edit
+ * Render or prepare edit post form
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  '/posts/:id/edit',
+  authorizePermission('post.update'),
+  async (req, res, next) => {
+    sendError(res, new Error('Edit post form not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Edit post form is under development',
+    });
+  }
+);
+
+/**
+ * GET /posts/:id/revisions
+ * List revisions for a post
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  '/posts/:id/revisions',
+  authorizePermission('post.read'),
+  async (req, res, next) => {
+    sendError(res, new Error('Get post revisions not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Post revisions endpoint is under development',
+    });
+  }
+);
+
+/**
+ * GET /posts/:id/revisions/:revisionId
+ * Get a specific revision
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  '/posts/:id/revisions/:revisionId',
+  authorizePermission('post.read'),
+  async (req, res, next) => {
+    sendError(res, new Error('Get revision not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Post revision endpoint is under development',
+    });
+  }
+);
+
+/**
+ * POST /posts
+ * Create a new post
+ * Future: authentication, admin authorization, validation, CSRF, controller
+ */
+router.post(
+  '/posts',
+  authorizePermission('post.create'),
+  async (req, res, next) => {
+    sendError(res, new Error('Create post not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Create post endpoint is under development',
+    });
+  }
+);
+
+/**
+ * PATCH /posts/:id
+ * Update a post
+ * Future: authentication, admin authorization, validation, CSRF, controller
+ */
+router.patch(
+  '/posts/:id',
+  authorizePermission('post.update'),
+  async (req, res, next) => {
+    sendError(res, new Error('Update post not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Update post endpoint is under development',
+    });
+  }
+);
+
+/**
+ * DELETE /posts/:id
+ * Move post to trash
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.delete(
+  '/posts/:id',
+  authorizePermission('post.delete'),
+  async (req, res, next) => {
+    sendError(res, new Error('Trash post not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Trash post endpoint is under development',
+    });
+  }
+);
+
+/**
+ * DELETE /posts/:id/permanent
+ * Permanently delete a post
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.delete(
+  '/posts/:id/permanent',
+  authorizePermission('post.delete'),
+  async (req, res, next) => {
+    sendError(res, new Error('Permanent delete post not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Permanent delete post endpoint is under development',
+    });
+  }
+);
+
+/**
+ * POST /posts/:id/publish
+ * Publish a post
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.post(
+  '/posts/:id/publish',
+  authorizePermission('post.publish'),
+  async (req, res, next) => {
+    sendError(res, new Error('Publish post not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Publish post endpoint is under development',
+    });
+  }
+);
+
+/**
+ * POST /posts/:id/unpublish
+ * Unpublish a post
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.post(
+  '/posts/:id/unpublish',
+  authorizePermission('post.publish'),
+  async (req, res, next) => {
+    sendError(res, new Error('Unpublish post not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Unpublish post endpoint is under development',
+    });
+  }
+);
+
+/**
+ * POST /posts/:id/schedule
+ * Schedule a post
+ * Future: authentication, admin authorization, validation, CSRF, controller
+ */
+router.post(
+  '/posts/:id/schedule',
+  authorizePermission('post.schedule'),
+  async (req, res, next) => {
+    sendError(res, new Error('Schedule post not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Schedule post endpoint is under development',
+    });
+  }
+);
+
+/**
+ * POST /posts/:id/restore
+ * Restore post from trash
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.post(
+  '/posts/:id/restore',
+  authorizePermission('post.restore'),
+  async (req, res, next) => {
+    sendError(res, new Error('Restore post not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Restore post endpoint is under development',
+    });
+  }
+);
+
+/**
+ * POST /posts/:id/revisions/:revisionId/restore
+ * Restore a specific revision
+ * Future: authentication, admin authorization, CSRF, controller
+ */
+router.post(
+  '/posts/:id/revisions/:revisionId/restore',
+  authorizePermission('post.restore'),
+  async (req, res, next) => {
+    sendError(res, new Error('Restore revision not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Restore revision endpoint is under development',
+    });
+  }
+);
+
+// ============================================================================
+// CATEGORY MANAGEMENT ROUTES
+// ============================================================================
+
+/**
+ * GET /categories
+ * List categories
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  '/categories',
+  authorizePermission('category.read'),
+  async (req, res, next) => {
+    sendError(res, new Error('Get categories not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Categories endpoint is under development',
+    });
+  }
+);
+
+/**
+ * GET /categories/new
+ * New category form
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  '/categories/new',
+  authorizePermission('category.create'),
+  async (req, res, next) => {
+    sendError(res, new Error('New category form not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'New category form is under development',
+    });
+  }
+);
+
+/**
+ * GET /categories/:id/edit
+ * Edit category form
+ * Future: authentication, admin authorization, controller
+ */
+router.get(
+  '/categories/:id/edit',
+  authorizePermission('category.update'),
+  async (req, res, next) => {
+    sendError(res, new Error('Edit category form not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Edit category form is under development',
+    });
+  }
+);
+
+/**
+ * POST /categories
+ * Create a category
+ * Future: authentication, admin authorization, validation, CSRF, controller
+ */
+router.post(
+  '/categories',
+  authorizePermission('category.create'),
+  async (req, res, next) => {
+    sendError(res, new Error('Create category not yet implemented'), {
+      statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+      message: 'Create category endpoint is under development',
+
+===== 3. CATEGORY VALIDATOR =====
+/**
+ * app/validators/category.validator.js
+ *
+ * Request-level validation for the Category domain.
+ *
+ * Scope:
+ *   - request shape and type validation
+ *   - length and range validation
+ *   - format validation
+ *   - allowlist validation
+ *   - safe transport normalization
+ *
+ * Out of scope:
+ *   - authentication / authorization
+ *   - database access
+ *   - parent existence or lifecycle checks
+ *   - category hierarchy / cycle detection
+ *   - slug uniqueness
+ *   - UUID generation
+ *   - persistence
+ *   - HTTP response generation
+ *
+ * Validators throw the project's ValidationError and return a new,
+ * normalized object without mutating caller input.
+ */
+
+import { ValidationError } from '../core/errors.js';
+
+// ----------------------------------------------------------------------------
+// CONSTANTS
+// ----------------------------------------------------------------------------
+
+const NAME_MAX_LENGTH = 150;
+const SLUG_MAX_LENGTH = 150;
+const DESCRIPTION_MAX_LENGTH = 500;
+
+/**
+ * Database schema:
+ *   categories.sort_order INT UNSIGNED
+ */
+const SORT_ORDER_MIN = 0;
+const SORT_ORDER_MAX = 4294967295;
+
+const LIMIT_MIN = 1;
+const LIMIT_MAX = 100;
+const LIMIT_DEFAULT = 20;
+
+const OFFSET_MIN = 0;
+const OFFSET_MAX = 100000;
+const OFFSET_DEFAULT = 0;
+
+const ORDERING_DEFAULT = 'sort_order_asc';
+
+const ORDERING_ALLOWLIST = Object.freeze([
+    'sort_order_asc',
+    'created_at_desc',
+]);
+
+const ORDERING_ALLOWLIST_SET = new Set(ORDERING_ALLOWLIST);
+
+const CREATE_ALLOWED_FIELDS = Object.freeze([
+    'parentId',
+    'name',
+    'slug',
+    'description',
+    'sortOrder',
+    'isActive',
+]);
+
+const UPDATE_ALLOWED_FIELDS = CREATE_ALLOWED_FIELDS;
+
+const FORBIDDEN_CREATE_FIELDS = Object.freeze([
+    'uuid',
+]);
+
+const CREATE_ALLOWED_FIELD_SET = new Set(CREATE_ALLOWED_FIELDS);
+const UPDATE_ALLOWED_FIELD_SET = new Set(UPDATE_ALLOWED_FIELDS);
+const FORBIDDEN_CREATE_FIELD_SET = new Set(FORBIDDEN_CREATE_FIELDS);
+
+/**
+ * Strict public URL slug.
+ *
+ * Examples:
+ *   tech
+ *   technology
+ *   tech-news
+ *   tech2026
+ */
+const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/**
+ * Canonical UUID format.
+ */
+const UUID_PATTERN =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Strict positive decimal integer string.
+ *
+ * No:
+ *   - leading zero
+ *   - sign
+ *   - decimal
+ *   - exponent
+ *   - whitespace
+ */
+const POSITIVE_INT_STRING_PATTERN = /^[1-9][0-9]*$/;
+
+/**
+ * Strict non-negative decimal integer string.
+ */
+const NON_NEGATIVE_INT_STRING_PATTERN = /^(?:0|[1-9][0-9]*)$/;
+
+/**
+ * ASCII control characters, including null byte.
+ */
+const CONTROL_CHAR_PATTERN = /[\u0000-\u001f\u007f]/;
+
+// ----------------------------------------------------------------------------
+// ERROR HELPER
+// ----------------------------------------------------------------------------
+
+/**
+ * Create a safe ValidationError.
+ *
+ * The official errors.js contract supports structured details:
+ *
+ *   new ValidationError(message, {
+ *       details: {
+ *           field,
+ *           code,
+ *       },
+ *   });
+ *
+ * Raw user-controlled values are not inserted into the message.
+ *
+ * @param {string} message
+ * @param {string|undefined} field
+ * @param {string|undefined} code
+ * @returns {ValidationError}
+ */
+function fail(message, field, code) {
+    if (field === undefined) {
+        return new ValidationError(message);
+    }
+
+    const details = {
+        field,
+    };
+
+    if (code !== undefined) {
+        details.code = code;
+    }
+
+    return new ValidationError(message, {
+        details,
+    });
+}
+
+// ----------------------------------------------------------------------------
+// OBJECT HELPERS
+// ----------------------------------------------------------------------------
+
+/**
+ * Determine whether a value is a plain object.
+ *
+ * @param {*} value
+ * @returns {boolean}
+ */
+function isPlainObject(value) {
+    if (value === null || typeof value !== 'object') {
+        return false;
+    }
+
+    if (Array.isArray(value)) {
+        return false;
+    }
+
+    const prototype = Object.getPrototypeOf(value);
+
+    return prototype === Object.prototype || prototype === null;
+}
+
+/**
+ * Safe own-property check.
+ *
+ * @param {object} object
+ * @param {string} key
+ * @returns {boolean}
+ */
+function hasOwn(object, key) {
+    return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+/**
+ * Reject ASCII control characters.
+ *
+ * @param {string} value
+ * @param {string} field
+ * @returns {string}
+ */
+function assertNoControlCharacters(value, field) {
+    if (CONTROL_CHAR_PATTERN.test(value)) {
+        throw fail(
+            `${field} contains invalid characters`,
+            field,
+            'invalid_value',
+        );
+    }
+
+    return value;
+}
+
+// ----------------------------------------------------------------------------
+// BODY FIELD VALIDATORS
+// ----------------------------------------------------------------------------
+
+/**
+ * Validate category name.
+ *
+ * @param {*} value
+ * @returns {string}
+ */
+function normalizeName(value) {
+    if (typeof value !== 'string') {
+        throw fail('name must be a string', 'name', 'invalid_type');
+    }
+
+    const normalized = value.trim();
+
+    if (normalized.length === 0) {
+        throw fail('name must not be empty', 'name', 'required');
+    }
+
+    if (normalized.length > NAME_MAX_LENGTH) {
+        throw fail(
+            `name must be at most ${NAME_MAX_LENGTH} characters`,
+            'name',
+            'invalid_length',
+        );
+    }
+
+    return assertNoControlCharacters(normalized, 'name');
+}
+
+/**
+ * Validate category slug.
+ *
+ * @param {*} value
+ * @returns {string}
+ */
+function normalizeSlug(value) {
+    if (typeof value !== 'string') {
+        throw fail('slug must be a string', 'slug', 'invalid_type');
+    }
+
+    const normalized = value.trim();
+
+    if (normalized.length === 0) {
+        throw fail('slug must not be empty', 'slug', 'required');
+    }
+
+    if (normalized.length > SLUG_MAX_LENGTH) {
+        throw fail(
+            `slug must be at most ${SLUG_MAX_LENGTH} characters`,
+            'slug',
+            'invalid_length',
+        );
+    }
+
+    if (CONTROL_CHAR_PATTERN.test(normalized)) {
+        throw fail(
+            'slug contains invalid characters',
+            'slug',
+            'invalid_value',
+        );
+    }
+
+    if (!SLUG_PATTERN.test(normalized)) {
+        throw fail(
+            'slug must contain only lowercase letters, digits, and single hyphens',
+            'slug',
+            'invalid_format',
+        );
+    }
+
+    return normalized;
+}
+
+/**
+ * Validate category description.
+ *
+ * null / undefined / empty-after-trim become null.
+ *
+ * @param {*} value
+ * @returns {string|null}
+ */
+function normalizeDescription(value) {
+    if (value === null || value === undefined) {
+        return null;
+    }
+
+    if (typeof value !== 'string') {
+        throw fail(
+            'description must be a string or null',
+            'description',
+            'invalid_type',
+        );
+    }
+
+    const normalized = value.trim();
+
+    if (normalized.length === 0) {
+        return null;
+    }
+
+    if (normalized.length > DESCRIPTION_MAX_LENGTH) {
+        throw fail(
+            `description must be at most ${DESCRIPTION_MAX_LENGTH} characters`,
+            'description',
+            'invalid_length',
+        );
+    }
+
+    return assertNoControlCharacters(normalized, 'description');
+}
+
+/**
+ * Validate body parentId.
+ *
+ * Semantics:
+ *   null             = root
+ *   positive integer = parent
+ *
+ * @param {*} value
+ * @returns {number|null}
+ */
+function normalizeBodyParentId(value) {
+    if (value === null) {
+        return null;
+    }
+
+    if (!Number.isInteger(value)) {
+        throw fail(
+            'parentId must be a positive integer or null',
+            'parentId',
+            'invalid_type',
+        );
+    }
+
+    if (value <= 0) {
+        throw fail(
+            'parentId must be a positive integer or null',
+            'parentId',
+            'invalid_range',
+        );
+    }
+
+    if (!Number.isSafeInteger(value)) {
+        throw fail(
+
+===== 4. CATEGORY CONTROLLER =====
+/**
+ * app/controllers/category.controller.js
+ *
+ * HTTP adapter for the Category domain.
+ *
+ * Responsibilities:
+ *   - Read validated HTTP input when available.
+ *   - Fall back to req.* defensively when validation middleware has not
+ *     populated req.validated.
+ *   - Call the appropriate Category Service method.
+ *   - Use the application's centralized response helpers.
+ *   - Forward errors to the centralized error middleware.
+ *
+ * Non-responsibilities:
+ *   - Validation.
+ *   - Business rules.
+ *   - Hierarchy/lifecycle policy.
+ *   - Authorization.
+ *   - SQL/repository access.
+ *   - Error serialization.
+ */
+
+import {
+    sendSuccess,
+    sendCreated,
+} from '../core/response.js';
+
+// -----------------------------------------------------------------------------
+// CONTRACT
+// -----------------------------------------------------------------------------
+
+const REQUIRED_SERVICE_METHODS = Object.freeze([
+    'listPublicCategories',
+    'getPublicCategoryBySlug',
+    'getPublicCategoryByUuid',
+    'countPublicCategories',
+    'listAdminCategories',
+    'getAdminCategory',
+    'getAdminCategoryByUuid',
+    'countAdminCategories',
+    'createCategory',
+    'updateCategory',
+    'deleteCategory',
+    'restoreCategory',
+    'activateCategory',
+    'deactivateCategory',
+]);
+
+// -----------------------------------------------------------------------------
+// HELPERS
+// -----------------------------------------------------------------------------
+
+/**
+ * Read normalized/validated input when upstream middleware provides it.
+ *
+ * Fallback to req[key] is intentionally defensive. The controller does not
+ * perform validation itself.
+ *
+ * @param {object} req
+ * @param {'body'|'query'|'params'} key
+ * @returns {object}
+ */
+function readInput(req, key) {
+    if (!req || typeof req !== 'object') {
+        return {};
+    }
+
+    const validated = req.validated;
+
+    if (
+        validated &&
+        typeof validated === 'object' &&
+        validated[key] !== undefined &&
+        validated[key] !== null
+    ) {
+        return validated[key];
+    }
+
+    const raw = req[key];
+
+    if (raw !== undefined && raw !== null) {
+        return raw;
+    }
+
+    return {};
+}
+
+/**
+ * Read a parameter without introducing validation logic.
+ *
+ * @param {object} req
+ * @param {string} name
+ * @returns {*}
+ */
+function readParam(req, name) {
+    const params = readInput(req, 'params');
+
+    if (
+        params &&
+        typeof params === 'object' &&
+        Object.prototype.hasOwnProperty.call(params, name)
+    ) {
+        return params[name];
+    }
+
+    return undefined;
+}
+
+/**
+ * Validate the injected service contract at composition time.
+ *
+ * @param {object} categoryService
+ */
+function assertCategoryService(categoryService) {
+    if (
+        !categoryService ||
+        typeof categoryService !== 'object'
+    ) {
+        throw new TypeError(
+            'createCategoryController requires categoryService'
+        );
+    }
+
+    for (const method of REQUIRED_SERVICE_METHODS) {
+        if (typeof categoryService[method] !== 'function') {
+            throw new TypeError(
+                `categoryService.${method} must be a function`
+            );
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// FACTORY
+// -----------------------------------------------------------------------------
+
+/**
+ * Create the Category Controller.
+ *
+ * The Service instance is injected by the composition root.
+ *
+ * @param {{categoryService: object}} deps
+ * @returns {Readonly<object>}
+ */
+export function createCategoryController({ categoryService } = {}) {
+    assertCategoryService(categoryService);
+
+    // -------------------------------------------------------------------------
+    // PUBLIC READS
+    // -------------------------------------------------------------------------
+
+    /**
+     * GET /categories
+     */
+    async function listPublicCategories(req, res, next) {
+        try {
+            const query = readInput(req, 'query');
+
+            const result =
+                await categoryService.listPublicCategories(query);
+
+            return sendSuccess(res, {
+                data: result,
+                message: 'Categories retrieved successfully',
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /**
+     * GET /categories/slug/:slug
+     */
+    async function getPublicCategoryBySlug(req, res, next) {
+        try {
+            const slug = readParam(req, 'slug');
+
+            const result =
+                await categoryService.getPublicCategoryBySlug(slug);
+
+            return sendSuccess(res, {
+                data: result,
+                message: 'Category retrieved successfully',
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /**
+     * GET /categories/:uuid
+     */
+    async function getPublicCategoryByUuid(req, res, next) {
+        try {
+            const uuid = readParam(req, 'uuid');
+
+            const result =
+                await categoryService.getPublicCategoryByUuid(uuid);
+
+            return sendSuccess(res, {
+                data: result,
+                message: 'Category retrieved successfully',
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /**
+     * GET /categories/count
+     */
+    async function countPublicCategories(req, res, next) {
+        try {
+            const query = readInput(req, 'query');
+
+            const count =
+                await categoryService.countPublicCategories(query);
+
+            return sendSuccess(res, {
+                data: { count },
+                message: 'Category count retrieved successfully',
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // ADMIN READS
+    // -------------------------------------------------------------------------
+
+    /**
+     * GET /admin/categories
+     */
+    async function listAdminCategories(req, res, next) {
+        try {
+            const query = readInput(req, 'query');
+
+            const result =
+                await categoryService.listAdminCategories(query);
+
+            return sendSuccess(res, {
+                data: result,
+                message: 'Categories retrieved successfully',
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /**
+     * GET /admin/categories/:id
+     */
+    async function getAdminCategory(req, res, next) {
+        try {
+            const id = readParam(req, 'id');
+
+            const result =
+                await categoryService.getAdminCategory(id);
+
+            return sendSuccess(res, {
+                data: result,
+                message: 'Category retrieved successfully',
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /**
+     * GET /admin/categories/uuid/:uuid
+     */
+    async function getAdminCategoryByUuid(req, res, next) {
+        try {
+            const uuid = readParam(req, 'uuid');
+
+            const result =
+                await categoryService.getAdminCategoryByUuid(uuid);
+
+            return sendSuccess(res, {
+                data: result,
+                message: 'Category retrieved successfully',
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /**
+     * GET /admin/categories/count
+     */
+    async function countAdminCategories(req, res, next) {
+        try {
+            const query = readInput(req, 'query');
+
+            const count =
+                await categoryService.countAdminCategories(query);
+
+            return sendSuccess(res, {
+                data: { count },
+                message: 'Category count retrieved successfully',
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // ADMIN WRITES
+    // -------------------------------------------------------------------------
+
+    /**
+     * POST /admin/categories
+     */
+    async function createCategory(req, res, next) {
+        try {
+            const body = readInput(req, 'body');
+
+            const result =
+                await categoryService.createCategory(body);
+
+            return sendCreated(
+                res,
+                result,
+                'Category created successfully'
+            );
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /**
+     * PATCH /admin/categories/:id
+     */
+    async function updateCategory(req, res, next) {
+        try {
+            const id = readParam(req, 'id');
+            const body = readInput(req, 'body');
+
+            const result =
+                await categoryService.updateCategory(id, body);
+
+            return sendSuccess(res, {
+                data: result,
+                message: 'Category updated successfully',
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /**
+     * DELETE /admin/categories/:id
+     */
+    async function deleteCategory(req, res, next) {
+        try {
+            const id = readParam(req, 'id');
+
+            const result =
+                await categoryService.deleteCategory(id);
+
+            return sendSuccess(res, {
+                data: result,
+                message: 'Category deleted successfully',
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /**
+     * POST /admin/categories/:id/restore
+     */
+    async function restoreCategory(req, res, next) {
+        try {
+            const id = readParam(req, 'id');
+
+            const result =
+                await categoryService.restoreCategory(id);
+
+            return sendSuccess(res, {
+                data: result,
+                message: 'Category restored successfully',
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /**
+     * POST /admin/categories/:id/activate
+     */
+    async function activateCategory(req, res, next) {
+        try {
+            const id = readParam(req, 'id');
+
+            const result =
+                await categoryService.activateCategory(id);
+
+            return sendSuccess(res, {
+                data: result,
+                message: 'Category activated successfully',
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /**
+     * POST /admin/categories/:id/deactivate
+     */
+    async function deactivateCategory(req, res, next) {
+        try {
+            const id = readParam(req, 'id');
+
+            const result =
+                await categoryService.deactivateCategory(id);
+
+            return sendSuccess(res, {
+                data: result,
+
+===== 5. CATEGORY SERVICE =====
+/**
+ * app/services/category.service.js
+ *
+ * Business logic layer for the Category domain.
+ *
+ * Responsibilities:
+ *   - Enforce category hierarchy and lifecycle policies.
+ *   - Coordinate repository operations to make domain decisions.
+ *   - Prevent circular parent relationships.
+ *   - Enforce activation/deactivation rules.
+ *   - Protect against mass assignment (strict update allowlist).
+ *   - Translate known persistence errors into domain errors.
+ *
+ * Non-responsibilities:
+ *   - HTTP request/response handling (Controller layer).
+ *   - Authorization (Middleware / Controller).
+ *   - SQL and driver access (Repository layer).
+ *   - Request-schema validation of primitives (Validator layer).
+ *     NOTE: parentId type/range validation is intentionally duplicated
+ *     here because an invalid type would otherwise reach the repository
+ *     and surface as a 500 instead of a 422. This duplication is
+ *     deliberate and documented.
+ *   - UUID algorithm selection (injected uuidGenerator).
+ *
+ * Known concurrency limitation:
+ *   Reparent cycle detection uses a non-locking descendant read.
+ *   Two concurrent reparent operations can, in principle, both pass
+ *   the descendant check and each persist an update that together
+ *   create a cycle.
+ *
+ *   Closing that window requires transaction/locking, a database-level
+ *   invariant, or serialization of reparent operations.
+ */
+
+import {
+    ValidationError,
+    NotFoundError,
+    ConflictError,
+} from '../core/errors.js';
+
+// ----------------------------------------------------------------------------
+// CONSTANTS
+// ----------------------------------------------------------------------------
+
+const ALLOWED_UPDATE_FIELDS = Object.freeze([
+    'parentId',
+    'name',
+    'slug',
+    'description',
+    'sortOrder',
+    'isActive',
+]);
+
+const ALLOWED_UPDATE_FIELD_SET = new Set(ALLOWED_UPDATE_FIELDS);
+
+const REQUIRED_REPOSITORY_METHODS = Object.freeze([
+    'create',
+    'updateById',
+    'softDeleteById',
+    'restoreById',
+    'findAdminById',
+    'findAdminByUuid',
+    'findPublicBySlug',
+    'findPublicByUuid',
+    'findPublicActive',
+    'findAdminList',
+    'countPublicActive',
+    'countAdmin',
+    'listDescendantIds',
+    'countActiveChildren',
+]);
+
+const ER_DUP_ENTRY = 'ER_DUP_ENTRY';
+const ER_NO_REFERENCED_ROW_2 = 'ER_NO_REFERENCED_ROW_2';
+
+const MSG_DUPLICATE_SLUG =
+    'A category with this slug already exists';
+
+const MSG_DUPLICATE_UUID =
+    'A category with this identifier already exists';
+
+const MSG_MISSING_PARENT =
+    'Parent category is no longer available';
+
+// ----------------------------------------------------------------------------
+// MODULE-LEVEL HELPERS
+// ----------------------------------------------------------------------------
+
+/**
+ * Check whether a value is a plain object.
+ *
+ * @param {*} value
+ * @returns {boolean}
+ */
+function isPlainObject(value) {
+    if (value === null || typeof value !== 'object') {
+        return false;
+    }
+
+    if (Array.isArray(value)) {
+        return false;
+    }
+
+    const proto = Object.getPrototypeOf(value);
+
+    return proto === Object.prototype || proto === null;
+}
+
+/**
+ * Safely check own-property presence.
+ *
+ * @param {object} object
+ * @param {string} key
+ * @returns {boolean}
+ */
+function hasOwn(object, key) {
+    return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+/**
+ * Extract a strict allowlisted PATCH object.
+ *
+ * Unknown fields are rejected rather than silently discarded.
+ *
+ * @param {*} input
+ * @returns {object}
+ */
+function extractAllowedPatch(input) {
+    if (!isPlainObject(input)) {
+        throw new ValidationError(
+            'Update input must be a plain object'
+        );
+    }
+
+    const patch = {};
+
+    for (const key of Object.keys(input)) {
+        if (!ALLOWED_UPDATE_FIELD_SET.has(key)) {
+            throw new ValidationError(
+                `Unsupported update field: ${key}`
+            );
+        }
+
+        if (input[key] !== undefined) {
+            patch[key] = input[key];
+        }
+    }
+
+    return patch;
+}
+
+/**
+ * Translate recognized database write errors into domain errors.
+ *
+ * Unknown errors are intentionally not translated.
+ *
+ * @param {*} error
+ * @param {{
+ *   onDuplicateSlug: string,
+ *   onDuplicateUuid: string,
+ *   onMissingParent: string
+ * }} messages
+ * @returns {Error|null}
+ */
+function translateWriteError(
+    error,
+    {
+        onDuplicateSlug,
+        onDuplicateUuid,
+        onMissingParent,
+    }
+) {
+    if (!error || typeof error !== 'object') {
+        return null;
+    }
+
+    if (error.code === ER_DUP_ENTRY) {
+        const sqlMessage =
+            typeof error.sqlMessage === 'string'
+                ? error.sqlMessage
+                : '';
+
+        if (sqlMessage.includes('uq_categories_slug')) {
+            return new ConflictError(onDuplicateSlug);
+        }
+
+        if (sqlMessage.includes('uq_categories_uuid')) {
+            return new ConflictError(onDuplicateUuid);
+        }
+
+        return new ConflictError(
+            'Category conflicts with an existing record'
+        );
+    }
+
+    if (error.code === ER_NO_REFERENCED_ROW_2) {
+        return new ValidationError(onMissingParent);
+    }
+
+    return null;
+}
+
+/**
+ * Determine whether a category is soft-deleted.
+ *
+ * Both null and undefined mean "not deleted".
+ *
+ * @param {object} category
+ * @returns {boolean}
+ */
+function isDeleted(category) {
+    return (
+        category.deleted_at !== null &&
+        category.deleted_at !== undefined
+    );
+}
+
+/**
+ * Determine whether a category is active.
+ *
+ * Supports both MySQL numeric representation and boolean mocks.
+ *
+ * @param {object} category
+ * @returns {boolean}
+ */
+function isActive(category) {
+    return (
+        category.is_active === true ||
+        category.is_active === 1
+    );
+}
+
+/**
+ * Load an admin representation through the repository.
+ *
+ * @param {object} repository
+ * @param {number} id
+ * @param {{includeDeleted?: boolean}} [options]
+ * @returns {Promise<object|null>}
+ */
+async function loadAdmin(
+    repository,
+    id,
+    options = {}
+) {
+    return repository.findAdminById(id, options);
+}
+
+/**
+ * Validate that a parent can be assigned.
+ *
+ * @param {object} repository
+ * @param {number} parentId
+ * @param {number} [selfId]
+ * @returns {Promise<object>}
+ */
+async function assertAssignableParent(
+    repository,
+    parentId,
+    selfId
+) {
+    if (
+        selfId !== undefined &&
+        parentId === selfId
+    ) {
+        throw new ConflictError(
+            'A category cannot be its own parent'
+        );
+    }
+
+    const parent = await loadAdmin(
+        repository,
+        parentId,
+        { includeDeleted: true }
+    );
+
+    if (!parent) {
+        throw new ValidationError(
+            'Parent category does not exist'
+        );
+    }
+
+    if (isDeleted(parent)) {
+        throw new ConflictError(
+            'Parent category is deleted'
+        );
+    }
+
+    if (!isActive(parent)) {
+        throw new ConflictError(
+            'Parent category is inactive; activate it before assigning children'
+        );
+    }
+
+    return parent;
+}
+
+/**
+ * Ensure a reparent operation cannot create a cycle.
+ *
+ * Assumes IDs have already been validated.
+ *
+ * @param {object} repository
+ * @param {number} id
+ * @param {number|null} newParentId
+ * @returns {Promise<void>}
+ */
+async function assertNoCycle(
+    repository,
+    id,
+    newParentId
+) {
+    if (
+        newParentId === null ||
+        newParentId === undefined
+    ) {
+        return;
+    }
+
+    if (newParentId === id) {
+        throw new ConflictError(
+            'A category cannot be its own parent'
+        );
+    }
+
+    const descendants =
+        await repository.listDescendantIds(id);
+
+    if (descendants.includes(newParentId)) {
+        throw new ConflictError(
+            'Cannot move a category under one of its own descendants'
+        );
+    }
+}
+
+/**
+ * Validate service-level parentId semantics.
+ *
+ * undefined means "not supplied".
+ * null means "move to root".
+ * positive integer means "assign this parent".
+ *
+ * @param {*} value
+ * @returns {void}
+ */
+function assertServiceParentId(value) {
+    if (value === null) {
+        return;
+    }
+
+    if (
+        !Number.isInteger(value) ||
+        value <= 0
+    ) {
+        throw new ValidationError(
+            'parentId must be a positive integer or null'
+        );
+    }
+}
+
+// ----------------------------------------------------------------------------
+// SERVICE FACTORY
+// ----------------------------------------------------------------------------
+
+/**
+ * Create the Category Service.
+ *
+ * @param {{
+ *   categoryRepository: object,
+ *   uuidGenerator: () => string
+ * }} deps
+ * @returns {object}
+ */
+export function createCategoryService({
+    categoryRepository,
+    uuidGenerator,
+} = {}) {
+    if (
+        !categoryRepository ||
+        typeof categoryRepository !== 'object'
+    ) {
+        throw new TypeError(
+            'createCategoryService requires categoryRepository'
+        );
+    }
+
+    if (typeof uuidGenerator !== 'function') {
+        throw new TypeError(
+            'createCategoryService requires uuidGenerator'
+        );
+    }
+
+    const repository = categoryRepository;
+
+    for (const method of REQUIRED_REPOSITORY_METHODS) {
+        if (typeof repository[method] !== 'function') {
+            throw new TypeError(
+                `categoryRepository.${method} must be a function`
+            );
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // CREATE
+    // ------------------------------------------------------------------------
+
+    /**
+     * Create a category.
+     *
+     * UUID is server-generated.
+     * Parent, when supplied, must exist and be active.
+     *
+     * @param {object} input
+     * @returns {Promise<object>}
+     */
+    async function createCategory(input) {
+        if (!isPlainObject(input)) {
+            throw new ValidationError(
+                'Create input must be a plain object'
+            );
+        }
+
+        if (hasOwn(input, 'uuid')) {
+            throw new ValidationError(
+                'UUID cannot be supplied when creating a category'
+            );
+        }
+
+        const parentId =
+            hasOwn(input, 'parentId')
+                ? input.parentId
+                : null;
+
+        const isActiveValue =
+            hasOwn(input, 'isActive')
+                ? input.isActive
+                : true;
+
+        if (
+            parentId !== null &&
+            parentId !== undefined
+        ) {
+            assertServiceParentId(parentId);
+
+            await assertAssignableParent(
+                repository,
+                parentId
+            );
+        }
+
+        const uuid = uuidGenerator();
+
+        if (
+            typeof uuid !== 'string' ||
+            uuid.length === 0
+        ) {
+            throw new TypeError(
+                'uuidGenerator must return a non-empty string'
+            );
+        }
+
+===== 6. CATEGORY FACTORY =====
+/**
+ * app/factories/category.factory.js
+ *
+ * Composition factory for the Category domain.
+ *
+ * Responsibility:
+ *   - Wire Category repository, service and controller.
+ *   - Provide cryptographically secure UUID generation.
+ *   - Keep dependency construction outside routes/controllers.
+ *
+ * Non-responsibilities:
+ *   - HTTP handling.
+ *   - Request validation.
+ *   - Authorization.
+ *   - Business rules.
+ *   - SQL.
+ */
+
+import { randomUUID } from 'node:crypto';
+
+import createCategoryRepository from '../repositories/category.repository.js';
+import createCategoryService from '../services/category.service.js';
+import createCategoryController from '../controllers/category.controller.js';
+
+/**
+ * Create the complete Category HTTP dependency graph.
+ *
+ * Dependency graph:
+ *
+ *   crypto.randomUUID
+ *          ↓
+ *   Category Service
+ *          ↑
+ *   Category Repository
+ *          ↓
+ *   Category Controller
+ *
+ * @returns {{
+ *   categoryRepository: object,
+ *   categoryService: object,
+ *   categoryController: object
+ * }}
+ */
+export function createCategoryDependencies() {
+    const categoryRepository = createCategoryRepository();
+
+    const categoryService = createCategoryService({
+        categoryRepository,
+        uuidGenerator: randomUUID,
+    });
+
+    const categoryController = createCategoryController({
+        categoryService,
+    });
+
+    return Object.freeze({
+        categoryRepository,
+        categoryService,
+        categoryController,
+    });
+}
+
+export default createCategoryDependencies;
+
+===== 7. VALIDATION MIDDLEWARE =====
+/**
+ * app/middleware/validation.js
+ *
+ * Generic request validation middleware.
+ *
+ * Architecture:
+ *
+ *   Route
+ *     ↓
+ *   Validation Middleware
+ *     ↓
+ *   Validator
+ *     ↓
+ *   req.validated
+ *     ↓
+ *   Controller
+ *
+ * Responsibilities:
+ *   - Execute configured validators.
+ *   - Validate request body/query/params independently.
+ *   - Store normalized validator output in req.validated.
+ *   - Forward validation/application errors to next(error).
+ *
+ * Non-responsibilities:
+ *   - Authentication.
+ *   - Authorization.
+ *   - Business logic.
+ *   - SQL/database access.
+ *   - HTTP response generation.
+ *   - Sanitization beyond what the validator itself performs.
+ *
+ * Configuration contract:
+ *   - Configuration is validated ONCE at middleware creation, not per
+ *     request.
+ *   - Only `body`, `query`, and `params` are accepted. Unknown keys are
+ *     rejected with a TypeError so a typo (e.g. `bdoy`) or an unintended
+ *     part (e.g. `headers`) cannot silently disable validation.
+ *   - An empty configuration is rejected: a middleware that silently
+ *     validates nothing is worse than one that fails to be created.
+ *
+ * Execution contract:
+ *   - Validators run sequentially in a fixed order: body → query → params.
+ *   - Each validator's return value is stored under the same key on
+ *     `req.validated`, without cloning, merging, or coercing.
+ *   - A validator may return an object, a scalar, or any other value.
+ *     `req.validated.<part>` will equal exactly what was returned.
+ *   - Validators may be synchronous or asynchronous.
+ *
+ * Security contract:
+ *   - `req.body`, `req.query`, and `req.params` are never mutated.
+ *   - Raw request values are never merged into `req.validated`.
+ *   - Only functions supplied by application code are executed; nothing
+ *     is evaluated dynamically.
+ *   - The `req.validated` container is frozen after population; the
+ *     values it holds are not deep-frozen.
+ *   - Errors are forwarded unchanged via `next(error)`; the centralized
+ *     error handler owns classification and response shaping.
+ */
+
+// ----------------------------------------------------------------------------
+// CONSTANTS
+// ----------------------------------------------------------------------------
+
+/**
+ * Allowed request parts, in deterministic execution order.
+ *
+ * `body` first because it is the most common source of validation
+ * failures on write endpoints; `params` last because route params are
+ * typically small and already constrained by the URL shape.
+ */
+const REQUEST_PARTS = Object.freeze(['body', 'query', 'params']);
+
+const REQUEST_PART_SET = new Set(REQUEST_PARTS);
+
+// ----------------------------------------------------------------------------
+// CONFIGURATION VALIDATION
+// ----------------------------------------------------------------------------
+
+/**
+ * Validate middleware configuration.
+ *
+ * Runs once at middleware creation so invalid route configuration fails
+ * at startup rather than during request handling.
+ *
+ * Rejects:
+ *   - non-plain-object configuration
+ *   - unknown keys (typos or unsupported request parts)
+ *   - non-function validators
+ *   - empty configuration (at least one validator is required)
+ *
+ * @param {object} validators
+ * @throws {TypeError}
+ */
+function assertValidators(validators) {
+    if (
+        validators === null ||
+        typeof validators !== 'object' ||
+        Array.isArray(validators)
+    ) {
+        throw new TypeError('Validation configuration must be a plain object.');
+    }
+
+    let configuredCount = 0;
+
+    for (const key of Object.keys(validators)) {
+        if (!REQUEST_PART_SET.has(key)) {
+            throw new TypeError(`Unsupported request part: "${key}".`);
+        }
+
+        if (typeof validators[key] !== 'function') {
+            throw new TypeError(
+                `Validator for "${key}" must be a function.`,
+            );
+        }
+
+        configuredCount += 1;
+    }
+
+    if (configuredCount === 0) {
+        throw new TypeError(
+            'Validation configuration must include at least one validator (body, query, or params).',
+        );
+    }
+}
+
+// ----------------------------------------------------------------------------
+// MIDDLEWARE FACTORY
+// ----------------------------------------------------------------------------
+
+/**
+ * Create generic request validation middleware.
+ *
+ * Example:
+ *
+ *   validate({
+ *       body: createCategoryBody,
+ *       query: listPublicCategoriesQuery,
+ *   })
+ *
+ * The validator's return value becomes the corresponding
+ * `req.validated` property, without transformation.
+ *
+ * @param {{
+ *   body?: Function,
+ *   query?: Function,
+ *   params?: Function
+ * }} validators
+ *
+ * @returns {Function} Express-compatible middleware
+ */
+export function validate(validators = {}) {
+    assertValidators(validators);
+
+    // Precompute the configured parts once. This is the hot path's only
+    // configuration-derived work, and it is frozen so no caller can
+    // mutate the plan after creation.
+    const configuredParts = Object.freeze(
+        REQUEST_PARTS.filter((part) =>
+            Object.prototype.hasOwnProperty.call(validators, part),
+        ),
+    );
+
+    return async function validationMiddleware(req, res, next) {
+        try {
+            const validated = {};
+
+            for (const part of configuredParts) {
+                const validator = validators[part];
+                const input = req[part];
+                const result = await validator(input);
+                validated[part] = result;
+            }
+
+            // Freeze the container only. The validator's returned value is
+            // not deep-frozen: it may be a large object, a shared reference,
+            // or an immutable scalar, and deep-freezing would cost more
+            // than it protects.
+            req.validated = Object.freeze(validated);
+
+            return next();
+        } catch (error) {
+            // Forward unchanged. The centralized error handler owns final
+            // classification; ValidationError.details is preserved intact.
+            return next(error);
+        }
+    };
+}
+
+// ----------------------------------------------------------------------------
+// CONVENIENCE HELPERS
+// ----------------------------------------------------------------------------
+
+/**
+ * Validate request body only.
+ *
+ * @param {Function} validator
+ * @returns {Function}
+ */
+export function validateBody(validator) {
+    return validate({ body: validator });
+}
+
+/**
+ * Validate request query only.
+ *
+ * @param {Function} validator
+ * @returns {Function}
+ */
+export function validateQuery(validator) {
+    return validate({ query: validator });
+}
+
+/**
+ * Validate request params only.
+ *
+ * @param {Function} validator
+ * @returns {Function}
+ */
+export function validateParams(validator) {
+    return validate({ params: validator });
+}
+
+/**
+ * Validate body + query.
+ *
+ * Convenience helper for endpoints that accept both.
+ *
+ * @param {Function} bodyValidator
+ * @param {Function} queryValidator
+ * @returns {Function}
+ */
+export function validateBodyAndQuery(bodyValidator, queryValidator) {
+    return validate({
+        body: bodyValidator,
+        query: queryValidator,
+    });
+}
+
+/**
+ * Validate params + query.
+ *
+ * Convenience helper for endpoints that use route parameters and
+ * query-string filters/pagination.
+ *
+ * @param {Function} paramsValidator
+ * @param {Function} queryValidator
+ * @returns {Function}
+ */
+export function validateParamsAndQuery(paramsValidator, queryValidator) {
+    return validate({
+        params: paramsValidator,
+        query: queryValidator,
+    });
+}
+
+/**
+ * Validate params + body.
+ *
+ * @param {Function} paramsValidator
+ * @param {Function} bodyValidator
+ * @returns {Function}
+ */
+export function validateParamsAndBody(paramsValidator, bodyValidator) {
+    return validate({
+        params: paramsValidator,
+        body: bodyValidator,
+    });
+}
+
+/**
+ * Validate params + query + body.
+ *
+ * @param {Function} paramsValidator
+ * @param {Function} queryValidator
+ * @param {Function} bodyValidator
+ * @returns {Function}
+ */
+export function validateRequest(
+    paramsValidator,
+    queryValidator,
+    bodyValidator,
+) {
+    return validate({
+        params: paramsValidator,
+        query: queryValidator,
+        body: bodyValidator,
+    });
+}
+
+// ----------------------------------------------------------------------------
+// DEFAULT EXPORT
+// ----------------------------------------------------------------------------
+
+export default validate;
+===== 8. RBAC =====
+/**
+ * app/middleware/rbac.js
+ * Express middleware to enforce permission checks.
+ *
+ * This middleware must be used AFTER authentication and admin authorization,
+ * i.e., after req.admin has been set.
+ */
+
+import { AuthenticationError, AuthorizationError } from '../core/errors.js';
+import { createChildLogger } from '../core/logger.js';
+import { getRequestId } from '../core/request-context.js';
+import rbacService from '../services/auth/rbac.service.js';
+
+const logger = createChildLogger({ module: 'rbac-middleware' });
+
+/**
+ * Factory that returns an Express middleware function.
+ * The middleware checks if the authenticated admin has the specified permission.
+ *
+ * @param {string} permissionSlug - The permission slug required for the route.
+ * @returns {Function} Express middleware.
+ */
+export function authorizePermission(permissionSlug) {
+  // Normalize permission slug at factory creation time
+  if (typeof permissionSlug !== 'string') {
+    throw new Error('permissionSlug must be a string');
+  }
+  const trimmedSlug = permissionSlug.trim();
+  if (trimmedSlug === '') {
+    throw new Error('permissionSlug must be a non-empty string');
+  }
+
+  return async (req, res, next) => {
+    try {
+      const requestId = getRequestId() || req.id;
+
+      // 1. Ensure admin authorization middleware ran and attached req.admin
+      if (!req.admin || !req.admin.admin_id) {
+        throw new AuthenticationError('Authentication required');
+      }
+
+      const adminId = req.admin.admin_id;
+
+      // 2. Check permission (trimmed slug is already stored)
+      const hasPermission = await rbacService.hasPermission(adminId, trimmedSlug);
+
+      if (!hasPermission) {
+        // Fail‑closed: deny access without revealing why.
+        throw new AuthorizationError('Insufficient permissions');
+      }
+
+      // 3. Log and continue
+      logger.debug({ adminId, permissionSlug: trimmedSlug, requestId }, 'Permission granted');
+      next();
+    } catch (err) {
+      // Propagate errors to the central error handler.
+      next(err);
+    }
+  };
+}
+
+// Add default export to support both named and default imports.
+export default authorizePermission;
+===== 9. AUTHENTICATION =====
+/**
+ * app/middleware/authentication.js
+ * Express middleware to validate the session and attach req.user.
+ */
+
+import { AuthenticationError } from '../core/errors.js';
+import { createChildLogger } from '../core/logger.js';
+import { getRequestId, setUserContext } from '../core/request-context.js';
+import authService from '../services/auth/auth.service.js';
+import sessionService, { hashSessionId } from '../services/auth/session.service.js';
+
+const logger = createChildLogger({ module: 'authentication-middleware' });
+
+export async function authenticate(req, res, next) {
+  try {
+    const requestId = getRequestId() || req.id;
+
+    // 1. Require userId in session
+    const userId = req.session?.userId;
+    if (!userId) {
+      throw new AuthenticationError('Authentication required');
+    }
+
+    // 2. Require a session ID
+    const sessionId = req.sessionID;
+    if (!sessionId) {
+      throw new AuthenticationError('Authentication required');
+    }
+
+    // 3. Hash the session ID for database lookup
+    const hashedId = hashSessionId(sessionId);
+
+    // 4. Validate the database session
+    const validation = await sessionService.validateSession(hashedId, userId);
+    if (!validation.valid) {
+      // Destroy Express session on any validation failure
+      req.session.destroy(() => {});
+      throw new AuthenticationError('Invalid session');
+    }
+
+    // 5. Fetch and validate the user
+    const user = await authService.getAuthenticatedUser(userId);
+    if (!user) {
+      req.session.destroy(() => {});
+      throw new AuthenticationError('User no longer valid');
+    }
+
+    // 6. Attach user to request and set context
+    req.user = user;
+    setUserContext({
+      userId: user.id,
+      isAuthenticated: true,
+    });
+
+    logger.debug({ userId: user.id, requestId }, 'Authentication successful');
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
+export default authenticate;
+===== 10. ROUTE MOUNTS =====
+app/core/app.js.backup:578:// Create router for API routes
+app/core/app.js.backup:581:// Mount API routes (future implementation)
+app/core/app.js.backup:588:    logger.debug('API routes not yet implemented');
+app/core/app.js.backup:605:// Admin routes (future implementation)
+app/core/app.js.backup:611:    logger.debug('Admin routes not yet implemented');
+app/core/app.js.backup:824: * - API routes mounted at /api/v1/
+app/core/app.js.backup:826: * - Admin routes mounted at /admin/
+app/core/app.js:12:import rootRouter from '../routes/index.routes.js';
+app/config/api.config.js:4: * Provides secure, validated configuration for API routes, versioning, pagination, rate limiting, and CORS
+app/routes/index.routes.js:2: * app/routes/index.routes.js
+app/routes/index.routes.js:6: * @module routes/index.routes
+app/routes/index.routes.js:12:import apiRouter from './api.routes.js';
+app/routes/index.routes.js:15:import adminRouter from './admin.routes.js';
+app/routes/index.routes.js:33:// 3. API ROUTES
+app/routes/index.routes.js:51:// 6. ADMIN ROUTES
+app/routes/api.routes.js:2: * app/routes/api.routes.js
+app/routes/api.routes.js:6: * @module routes/api.routes
+app/routes/admin.routes.js:2: * app/routes/admin.routes.js
+app/routes/admin.routes.js:6: * @module routes/admin.routes
+app/routes/admin.routes.js:29:// Protect all admin routes with authentication + authorization
+
+===== 11. CATEGORY REFERENCES =====
+app/validators/category.validator.js:818: *   categoryIdParam(req.params.id)
+app/validators/category.validator.js:825:export function categoryIdParam(value) {
+app/validators/category.validator.js:859:export function categoryUuidParam(value) {
+app/validators/category.validator.js:880:export function categorySlugParam(value) {
+app/validators/category.validator.js:1029:    categoryIdParam,
+app/validators/category.validator.js:1030:    categoryUuidParam,
+app/validators/category.validator.js:1031:    categorySlugParam,
+app/factories/category.factory.js:22:import createCategoryService from '../services/category.service.js';
+app/factories/category.factory.js:23:import createCategoryController from '../controllers/category.controller.js';
+app/factories/category.factory.js:40: *   categoryService: object,
+app/factories/category.factory.js:41: *   categoryController: object
+app/factories/category.factory.js:44:export function createCategoryDependencies() {
+app/factories/category.factory.js:47:    const categoryService = createCategoryService({
+app/factories/category.factory.js:52:    const categoryController = createCategoryController({
+app/factories/category.factory.js:53:        categoryService,
+app/factories/category.factory.js:58:        categoryService,
+app/factories/category.factory.js:59:        categoryController,
+app/factories/category.factory.js:63:export default createCategoryDependencies;
+app/controllers/category.controller.js:112: * @param {object} categoryService
+app/controllers/category.controller.js:114:function assertCategoryService(categoryService) {
+app/controllers/category.controller.js:116:        !categoryService ||
+app/controllers/category.controller.js:117:        typeof categoryService !== 'object'
+app/controllers/category.controller.js:120:            'createCategoryController requires categoryService'
+app/controllers/category.controller.js:125:        if (typeof categoryService[method] !== 'function') {
+app/controllers/category.controller.js:127:                `categoryService.${method} must be a function`
+app/controllers/category.controller.js:142: * @param {{categoryService: object}} deps
+app/controllers/category.controller.js:145:export function createCategoryController({ categoryService } = {}) {
+app/controllers/category.controller.js:146:    assertCategoryService(categoryService);
+app/controllers/category.controller.js:160:                await categoryService.listPublicCategories(query);
+app/controllers/category.controller.js:179:                await categoryService.getPublicCategoryBySlug(slug);
+app/controllers/category.controller.js:198:                await categoryService.getPublicCategoryByUuid(uuid);
+app/controllers/category.controller.js:217:                await categoryService.countPublicCategories(query);
+app/controllers/category.controller.js:240:                await categoryService.listAdminCategories(query);
+app/controllers/category.controller.js:259:                await categoryService.getAdminCategory(id);
+app/controllers/category.controller.js:278:                await categoryService.getAdminCategoryByUuid(uuid);
+app/controllers/category.controller.js:297:                await categoryService.countAdminCategories(query);
+app/controllers/category.controller.js:320:                await categoryService.createCategory(body);
+app/controllers/category.controller.js:341:                await categoryService.updateCategory(id, body);
+app/controllers/category.controller.js:360:                await categoryService.deleteCategory(id);
+app/controllers/category.controller.js:379:                await categoryService.restoreCategory(id);
+app/controllers/category.controller.js:398:                await categoryService.activateCategory(id);
+app/controllers/category.controller.js:417:                await categoryService.deactivateCategory(id);
+app/controllers/category.controller.js:455:export default createCategoryController;
+app/services/category.service.js:374:export function createCategoryService({
+app/services/category.service.js:383:            'createCategoryService requires categoryRepository'
+app/services/category.service.js:389:            'createCategoryService requires uuidGenerator'
+app/services/category.service.js:1146:export default createCategoryService;
+
+===== 12. RESPONSE HELPERS =====
+/**
+ * app/core/response.js
+ * Consistent response abstraction for Tesnow API
+ * Provides standardized success, error, and paginated responses
+ * 
+ * @module response
+ */
+
+import { getRequestId, getCorrelationId, hasRequestContext } from './request-context.js';
+import { HTTP_STATUS } from './constants.js';
+import { AppError, normalizeError, toSafeErrorResponse } from './errors.js';
+
+// ----------------------------------------------------------------------------
+// 1. CONSTANTS
+// ----------------------------------------------------------------------------
+
+const DEFAULT_SUCCESS_MESSAGE = 'Operation successful';
+const DEFAULT_ERROR_MESSAGE = 'An unexpected error occurred';
+
+// ----------------------------------------------------------------------------
+// 2. HELPER FUNCTIONS
+// ----------------------------------------------------------------------------
+
+/**
+ * Get request ID from context if available
+ * @returns {string|null} Request ID or null
+ */
+function getRequestIdFromContext() {
+    try {
+        if (hasRequestContext()) {
+            return getRequestId();
+        }
+    } catch {
+        // Ignore context errors
+    }
+    return null;
+}
+
+/**
+ * Get correlation ID from context if available
+ * @returns {string|null} Correlation ID or null
+ */
+function getCorrelationIdFromContext() {
+    try {
+        if (hasRequestContext()) {
+            return getCorrelationId();
+        }
+    } catch {
+        // Ignore context errors
+    }
+    return null;
+}
+
+/**
+ * Sanitize a message string
+ * @param {string} message - Message to sanitize
+ * @param {string} defaultMessage - Default message if invalid
+ * @returns {string} Sanitized message
+ */
+function sanitizeMessage(message, defaultMessage) {
+    if (typeof message !== 'string' || message.trim().length === 0) {
+        return defaultMessage || '';
+    }
+    
+    // Truncate extremely long messages (max 1000 chars)
+    if (message.length > 1000) {
+        return message.substring(0, 1000);
+    }
+    
+    // Remove control characters (except newlines for error messages)
+    return message.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+}
+
+/**
+ * Validate HTTP status code
+ * @param {number} statusCode - Status code to validate
+ * @param {number} fallback - Fallback status code
+ * @returns {number} Valid status code
+ */
+function validateStatusCode(statusCode, fallback = 500) {
+    if (typeof statusCode !== 'number' || !Number.isInteger(statusCode)) {
+        return fallback;
+    }
+    
+    // HTTP status codes are 100-599
+    if (statusCode < 100 || statusCode > 599) {
+        return fallback;
+    }
+    
+    return statusCode;
+}
+
+/**
+ * Check if response can be sent
+ * @param {import('express').Response} res - Express response
+ * @returns {boolean} True if response can be sent
+ */
+function canSendResponse(res) {
+    return res && typeof res === 'object' && !res.headersSent;
+}
+
+/**
+ * Safely serialize data for JSON response
+ * @param {*} data - Data to serialize
+ * @returns {*} Safely serialized data
+ */
+function safeSerialize(data) {
+    if (data === undefined || data === null) {
+        return null;
+    }
+    
+    // Handle BigInt
+    if (typeof data === 'bigint') {
+        return data.toString();
+    }
+    
+    // Handle Date
+    if (data instanceof Date) {
+        return data.toISOString();
+    }
+    
+    // Handle Error (should not happen, but safe fallback)
+    if (data instanceof Error) {
+        return {
+            name: data.name,
+            message: data.message,
+        };
+    }
+    
+    // Handle arrays
+    if (Array.isArray(data)) {
+        return data.map(item => safeSerialize(item));
+    }
+    
+    // Handle objects
+    if (data && typeof data === 'object') {
+        // Check for circular references
+        try {
+            JSON.stringify(data);
+        } catch {
+            // If circular, create a safe copy
+            const safeCopy = {};
+            for (const key of Object.keys(data)) {
+                try {
+                    safeCopy[key] = safeSerialize(data[key]);
+                } catch {
+                    safeCopy[key] = '[Circular or Unserializable]';
+                }
+            }
+            return safeCopy;
+        }
+        
+        // If serializable, process recursively
+        const result = {};
+        for (const key of Object.keys(data)) {
+            // Skip potentially sensitive fields if they appear in objects
+            // But only if this is not a known safe object (we can't know for sure)
+            // We'll rely on the caller to not pass sensitive data
+            result[key] = safeSerialize(data[key]);
+        }
+        return result;
+    }
+    
+    // Primitive values
+    return data;
+}
+
+// ----------------------------------------------------------------------------
+// 3. CORE RESPONSE FUNCTIONS
+// ----------------------------------------------------------------------------
+
+/**
+ * Send a success response
+ * @param {import('express').Response} res - Express response
+ * @param {Object} options - Response options
+ * @param {number} options.statusCode - HTTP status code (default: 200)
+ * @param {*} options.data - Response data
+ * @param {string} options.message - Success message
+ * @param {Object} options.meta - Additional metadata
+ * @param {string} options.requestId - Request ID (overrides context)
+ * @param {string} options.correlationId - Correlation ID (overrides context)
+ * @param {boolean} options.includeMeta - Whether to include meta in response
+ * @returns {import('express').Response} Express response
+ */
+export function sendSuccess(res, options = {}) {
+    // Default options
+    const {
+        statusCode = 200,
+        data = null,
+        message = DEFAULT_SUCCESS_MESSAGE,
+        meta = null,
+        requestId: providedRequestId = null,
+        correlationId: providedCorrelationId = null,
+        includeMeta = true,
+    } = options;
+    
+    // Validate status code
+    const safeStatusCode = validateStatusCode(statusCode, 200);
+    
+    // Check if response can be sent
+    if (!canSendResponse(res)) {
+        return res;
+    }
+    
+    // Get request IDs
+    const requestId = providedRequestId || getRequestIdFromContext();
+    const correlationId = providedCorrelationId || getCorrelationIdFromContext();
+    
+    // Sanitize message
+    const safeMessage = sanitizeMessage(message, DEFAULT_SUCCESS_MESSAGE);
+    
+    // Build response body
+    const responseBody = {
+        success: true,
+    };
+    
+    // Add data if present
+    if (data !== null && data !== undefined) {
+        responseBody.data = safeSerialize(data);
+    }
+    
+    // Add message
+    if (safeMessage) {
+        responseBody.message = safeMessage;
+    }
+    
+    // Build meta object
+    const metaObject = {};
+    
+    if (includeMeta) {
+        if (requestId) {
+            metaObject.requestId = requestId;
+        }
+        if (correlationId) {
+            metaObject.correlationId = correlationId;
+        }
+        if (meta && typeof meta === 'object') {
+            // Merge meta, but don't override requestId/correlationId if they're already set
+            const safeMeta = safeSerialize(meta);
+            if (safeMeta && typeof safeMeta === 'object') {
+                Object.assign(metaObject, safeMeta);
+            }
+        }
+    }
+    
+    // Add meta if not empty
+    if (Object.keys(metaObject).length > 0) {
+        responseBody.meta = metaObject;
+    }
+    
+    // Set request ID header if available
+    if (requestId) {
+        res.setHeader('X-Request-ID', requestId);
+    }
+    
+    // Send response
+    return res.status(safeStatusCode).json(responseBody);
+}
+
+/**
+ * Send a created response (201)
+ * @param {import('express').Response} res - Express response
+ * @param {*} data - Created resource data
+ * @param {string} message - Success message
+ * @param {Object} meta - Additional metadata
+ * @returns {import('express').Response} Express response
+ */
+export function sendCreated(res, data = null, message = 'Resource created successfully', meta = null) {
+    return sendSuccess(res, {
+        statusCode: HTTP_STATUS.CREATED,
+        data,
+        message,
+        meta,
+    });
+}
+
+/**
+ * Send an accepted response (202)
+ * @param {import('express').Response} res - Express response
+ * @param {*} data - Response data
+ * @param {string} message - Success message
+ * @param {Object} meta - Additional metadata
+ * @returns {import('express').Response} Express response
+ */
+export function sendAccepted(res, data = null, message = 'Request accepted', meta = null) {
+    return sendSuccess(res, {
+        statusCode: HTTP_STATUS.ACCEPTED,
+        data,
+        message,
+        meta,
+    });
+}
+
+/**
+ * Send a no-content response (204)
+ * @param {import('express').Response} res - Express response
+ * @returns {import('express').Response} Express response
+ */
+export function sendNoContent(res) {
+    if (!canSendResponse(res)) {
+        return res;
+    }
+    
+    // Set status to 204 and end without body
+    return res.status(HTTP_STATUS.NO_CONTENT).send();
+}
+
+/**
+ * Send a paginated response
+ * @param {import('express').Response} res - Express response
+ * @param {Object} options - Response options
+ * @param {*} options.data - Paginated data items
+ * @param {Object} options.pagination - Pagination metadata
+ * @param {number} options.pagination.page - Current page
+ * @param {number} options.pagination.limit - Items per page
+ * @param {number} options.pagination.total - Total items
+ * @param {number} options.pagination.totalPages - Total pages
+ * @param {boolean} options.pagination.hasNext - Has next page
+ * @param {boolean} options.pagination.hasPrevious - Has previous page
+ * @param {string} options.message - Success message
+ * @param {Object} options.meta - Additional metadata
+ * @returns {import('express').Response} Express response
+ */
+export function sendPaginated(res, options = {}) {
+    const {
+        data = null,
+        pagination = null,
+        message = 'Data retrieved successfully',
+        meta = null,
+    } = options;
+    
+    // Build meta with pagination
+    const responseMeta = {
+        ...(meta || {}),
+    };
+    
+    if (pagination && typeof pagination === 'object') {
+        const { page, limit, total, totalPages, hasNext, hasPrevious } = pagination;
+        
+        responseMeta.pagination = {
+            page: typeof page === 'number' ? page : 1,
+            limit: typeof limit === 'number' ? limit : 20,
+            total: typeof total === 'number' ? total : 0,
+            totalPages: typeof totalPages === 'number' ? totalPages : 0,
+            hasNext: typeof hasNext === 'boolean' ? hasNext : false,
+            hasPrevious: typeof hasPrevious === 'boolean' ? hasPrevious : false,
+        };
+    }
+    
+    return sendSuccess(res, {
+        statusCode: HTTP_STATUS.OK,
+        data,
+        message,
+        meta: responseMeta,
+    });
+}
+
+// ----------------------------------------------------------------------------
+// 4. ERROR RESPONSE
+// ----------------------------------------------------------------------------

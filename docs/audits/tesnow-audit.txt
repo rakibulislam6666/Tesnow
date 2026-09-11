@@ -1,0 +1,1783 @@
+==========================================
+TESNOW AUDIT — PHASE 3B-5C START
+==========================================
+
+DATE:
+Thu Sep 10 11:25:09 +06 2026
+
+NODE:
+v24.18.0
+
+PROJECT:
+/data/data/com.termux/files/home/Tesnow
+
+PHASE 3B-5B STATUS:
+COMPLETE + LOCKED
+
+DATABASE COUNTS:
+◇ injected env (9) from .env // tip: ⌘ override existing { override: true }
+permissions: 50
+roles: 8
+role_permissions: 116
+admins: 0
+
+RBAC FILES:
+app/controllers/admin/audit-log.controller.js
+app/controllers/admin/permission.controller.js
+app/controllers/admin/role.controller.js
+app/controllers/admin/security.controller.js
+app/middleware/rbac.js
+app/middleware/security-headers.js
+app/middleware/upload-security.js
+app/repositories/audit.repository.js
+app/repositories/permission.repository.js
+app/repositories/role.repository.js
+app/repositories/security.repository.js
+app/routes/admin.routes.js
+app/services/auth/rbac.service.js
+database/seeders/admin_roles.seeder.js
+database/seeders/permissions.seeder.js
+database/seeders/role_permissions.seeder.js
+database/seeders/roles.seeder.js
+
+ROLE/PERMISSION REFERENCES:
+app/repositories/role.repository.js:47:          JOIN admin_roles ar ON a.id = ar.admin_id
+app/repositories/role.repository.js:49:          JOIN role_permissions rp ON r.id = rp.role_id
+database/seeders/role_permissions.seeder.js:2: * database/seeders/role_permissions.seeder.js
+database/seeders/role_permissions.seeder.js:3: * Seeds the approved role‑permission assignments (116 total) into the role_permissions table.
+database/seeders/role_permissions.seeder.js:71:const ROLE_PERMISSIONS = {
+database/seeders/role_permissions.seeder.js:167: * Seeds the role_permissions table with the approved role‑permission assignments.
+database/seeders/role_permissions.seeder.js:174:  const roleSlugs = Object.keys(ROLE_PERMISSIONS);
+database/seeders/role_permissions.seeder.js:189:  const allPermissionSlugs = Object.values(ROLE_PERMISSIONS).flat();
+database/seeders/role_permissions.seeder.js:208:  for (const [roleSlug, permissionSlugs] of Object.entries(ROLE_PERMISSIONS)) {
+database/seeders/role_permissions.seeder.js:216:        'SELECT 1 FROM role_permissions WHERE role_id = ? AND permission_id = ? LIMIT 1',
+database/seeders/role_permissions.seeder.js:227:        'INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)',
+database/seeders/admin_roles.seeder.js:2: * database/seeders/admin_roles.seeder.js
+database/seeders/admin_roles.seeder.js:36: * Seeds the admin_roles table with the configured admin-role mappings.
+database/seeders/admin_roles.seeder.js:89:      'SELECT 1 FROM admin_roles WHERE admin_id = ? AND role_id = ? LIMIT 1',
+database/seeders/admin_roles.seeder.js:101:      'INSERT INTO admin_roles (admin_id, role_id) VALUES (?, ?)',
+database/migrations/025_create_admin_roles.sql:3:-- 025_create_admin_roles.sql
+database/migrations/025_create_admin_roles.sql:7:CREATE TABLE IF NOT EXISTS admin_roles (
+database/migrations/025_create_admin_roles.sql:14:    KEY idx_admin_roles_role_id (role_id),
+database/migrations/025_create_admin_roles.sql:16:    CONSTRAINT fk_admin_roles_admin
+database/migrations/025_create_admin_roles.sql:22:    CONSTRAINT fk_admin_roles_role
+database/migrations/004_create_permissions.down.sql:1:DROP TABLE IF EXISTS role_permissions;
+database/migrations/025_create_admin_roles.down.sql:3:-- 025_create_admin_roles.down.sql
+database/migrations/025_create_admin_roles.down.sql:4:-- Rollback for admin_roles table
+database/migrations/025_create_admin_roles.down.sql:7:DROP TABLE IF EXISTS admin_roles;
+database/migrations/004_create_permissions.sql:36:CREATE TABLE IF NOT EXISTS role_permissions (
+database/migrations/004_create_permissions.sql:44:    KEY idx_role_permissions_permission
+database/migrations/004_create_permissions.sql:47:    CONSTRAINT fk_role_permissions_role
+database/migrations/004_create_permissions.sql:53:    CONSTRAINT fk_role_permissions_permission
+
+==========================================
+END AUDIT
+==========================================
+
+============================================================
+TESNOW AUDIT UPDATE
+Phase: 3B-5C — Role Permission Management
+Status: COMPLETE + LOCKED
+Date: 2026-09-10
+============================================================
+
+PHASE 3B-5C SCOPE
+-----------------
+Implemented role-permission management:
+
+GET    /admin/roles/:id/permissions
+POST   /admin/roles/:id/permissions
+DELETE /admin/roles/:id/permissions/:permissionId
+
+Permissions activated:
+- role.permission.read
+- role.permission.grant
+- role.permission.revoke
+
+Only super_admin receives these three permissions.
+
+------------------------------------------------------------
+FILES IMPLEMENTED / MODIFIED
+------------------------------------------------------------
+
+CREATED:
+- app/repositories/role-permission.repository.js
+
+MODIFIED:
+- database/seeders/permissions.seeder.js
+- database/seeders/role_permissions.seeder.js
+- app/repositories/permission.repository.js
+- app/services/auth/rbac.service.js
+- app/controllers/admin/role.controller.js
+- app/routes/admin.routes.js
+
+NO DATABASE MIGRATION REQUIRED.
+
+------------------------------------------------------------
+STATIC SYNTAX VERIFICATION
+------------------------------------------------------------
+
+Commands executed:
+
+node --check app/repositories/role-permission.repository.js
+node --check app/repositories/permission.repository.js
+node --check app/services/auth/rbac.service.js
+node --check app/controllers/admin/role.controller.js
+node --check app/routes/admin.routes.js
+node --check database/seeders/permissions.seeder.js
+node --check database/seeders/role_permissions.seeder.js
+
+RESULT:
+ALL PASSED
+
+------------------------------------------------------------
+DYNAMIC IMPORT VERIFICATION
+------------------------------------------------------------
+
+role-permission.repository.js
+RESULT: PASS
+Exports:
+- createRolePermissionRepository
+- default
+
+permission.repository.js
+RESULT: PASS
+Exports:
+- createPermissionRepository
+- default
+
+rbac.service.js
+RESULT: PASS
+Exports:
+- createRbacService
+- default
+
+role.controller.js
+RESULT: PASS
+Exports:
+- createRole
+- deleteRole
+- getRole
+- grantPermissionToRole
+- listRolePermissions
+- listRoles
+- revokePermissionFromRole
+- updateRole
+
+admin.routes.js
+RESULT: PASS
+Default export: function
+
+------------------------------------------------------------
+DATABASE SEED VERIFICATION
+------------------------------------------------------------
+
+First seed:
+
+Permissions: inserted 3, skipped 50
+Roles: inserted 0, skipped 8
+Role Permissions: inserted 3, skipped 116
+Admin Roles: inserted 0, skipped 0
+
+Result:
+Seed completed successfully.
+
+Second seed:
+
+Permissions: inserted 0, skipped 53
+Roles: inserted 0, skipped 8
+Role Permissions: inserted 0, skipped 119
+Admin Roles: inserted 0, skipped 0
+
+Result:
+Seed completed successfully.
+
+IDEMPOTENCY:
+PASS
+
+------------------------------------------------------------
+DATABASE COUNTS
+------------------------------------------------------------
+
+permissions:
+53
+
+role_permissions:
+119
+
+EXPECTED:
+permissions = 53
+role_permissions = 119
+
+RESULT:
+PASS
+
+------------------------------------------------------------
+NEW PERMISSION VERIFICATION
+------------------------------------------------------------
+
+Verified permissions:
+
+role.permission.grant
+role.permission.read
+role.permission.revoke
+
+RESULT:
+3/3 PRESENT
+
+------------------------------------------------------------
+SUPER ADMIN PERMISSION VERIFICATION
+------------------------------------------------------------
+
+super_admin has:
+
+- role.permission.read
+- role.permission.grant
+- role.permission.revoke
+
+RESULT:
+PASS
+
+------------------------------------------------------------
+NON-SUPER-ADMIN ISOLATION
+------------------------------------------------------------
+
+Query verified that the three new role-permission management
+permissions are assigned only to:
+
+super_admin
+
+No non-super-admin role received:
+- role.permission.read
+- role.permission.grant
+- role.permission.revoke
+
+RESULT:
+PASS
+
+------------------------------------------------------------
+ROUTE VERIFICATION
+------------------------------------------------------------
+
+New route permissions found:
+
+role.permission.read
+role.permission.grant
+role.permission.revoke
+
+Exactly 3 route permission references verified.
+
+RESULT:
+PASS
+
+------------------------------------------------------------
+SECURITY VERIFICATION
+------------------------------------------------------------
+
+Checked:
+
+grep -nE "super_admin|is_system_role" \
+app/routes/admin.routes.js \
+app/middleware/rbac.js
+
+RESULT:
+No super_admin or is_system_role bypass exists in route/middleware.
+
+RBAC remains server-side authoritative.
+
+No route-level super-admin bypass.
+
+------------------------------------------------------------
+MIDDLEWARE ORDER
+------------------------------------------------------------
+
+Verified:
+
+router.use(authenticate);
+router.use(authorizeAdmin);
+
+Order:
+1. authenticate
+2. authorizeAdmin
+3. route-level permission authorization
+
+RESULT:
+PASS
+
+------------------------------------------------------------
+RBAC SECURITY DESIGN
+------------------------------------------------------------
+
+System roles:
+- Protected from runtime permission mutation.
+- No client-controlled is_system_role mutation.
+- System-role tamper attempts generate durable security events.
+
+Permission grant:
+- Caller must possess the target permission.
+- Prevents privilege escalation through unauthorized permission grants.
+
+Permission revoke:
+- Uses authoritative role/permission IDs.
+- Mutation is transactional.
+- Audit logging is part of the mutation transaction.
+
+Role mutation:
+- Role CREATE/UPDATE/DELETE remains protected by:
+  role.create
+  role.update
+  role.delete
+
+------------------------------------------------------------
+CURRENT RBAC PERMISSION TOTAL
+------------------------------------------------------------
+
+Total permissions:
+53
+
+Total role-permission mappings:
+119
+
+Roles:
+8
+
+Current system role:
+- super_admin
+
+Non-system roles:
+- content_manager
+- user_manager
+- moderator
+- analytics_viewer
+- settings_manager
+- viewer
+- auditor
+
+------------------------------------------------------------
+PHASE 3B STATUS
+------------------------------------------------------------
+
+3B-1  Admin Identity              COMPLETE + LOCKED
+3B-2  Admin Authorization         COMPLETE + LOCKED
+3B-3A RBAC Schema                 COMPLETE + LOCKED
+3B-3B RBAC Service/Middleware     COMPLETE + LOCKED
+3B-3C Permission Catalog          COMPLETE + LOCKED
+3B-4  Admin Route Mapping         COMPLETE + LOCKED
+3B-5A Role/Permission Read        COMPLETE + LOCKED
+3B-5B Role CRUD                   COMPLETE + LOCKED
+3B-5C Role Permission Management  COMPLETE + LOCKED
+
+============================================================
+PHASE 3B-5C FINAL STATUS
+COMPLETE + LOCKED
+============================================================
+
+No further changes should be made to Phase 3B-5C files
+unless a future audit identifies a concrete defect.
+
+Next development phase must preserve all locked RBAC behavior.
+
+============================================================
+END OF AUDIT UPDATE
+============================================================
+
+============================================================
+TESNOW — PHASE 3B-6
+ADMIN ACCOUNT & ROLE ASSIGNMENT MANAGEMENT
+ARCHITECTURE APPROVED + LOCKED
+============================================================
+
+Date:
+2026-09-10
+
+Status:
+APPROVED + LOCKED
+Implementation: NOT YET STARTED
+
+============================================================
+1. PHASE OBJECTIVE
+============================================================
+
+Phase 3B-6 introduces secure Admin Account Management and
+Admin ↔ Role Assignment Management.
+
+Authoritative architecture:
+
+users
+  ↓
+admins
+  ↓
+admin_roles
+  ↓
+roles
+  ↓
+role_permissions
+  ↓
+permissions
+
+Admin account creation consists of:
+
+users + admins + optional admin_roles
+
+and MUST be atomic inside one database transaction.
+
+No bootstrap administrator is created.
+
+============================================================
+2. CURRENT DATABASE STATE BEFORE PHASE 3B-6
+============================================================
+
+Verified previous Phase 3B-5C state:
+
+permissions:
+53
+
+role_permissions:
+119
+
+roles:
+8
+
+admins:
+0
+
+admin_roles:
+0
+
+Expected Phase 3B-6 state after seeding:
+
+permissions:
+60
+
+role_permissions:
+126
+
+roles:
+8
+
+admins:
+0
+
+admin_roles:
+0
+
+============================================================
+3. NEW PERMISSIONS
+============================================================
+
+Add exactly these 7 permissions:
+
+1. admin.read
+2. admin.create
+3. admin.update
+4. admin.delete
+5. admin.role.read
+6. admin.role.assign
+7. admin.role.revoke
+
+Only:
+
+super_admin
+
+receives these 7 permissions.
+
+All non-system roles MUST remain unchanged.
+
+The existing 53 permissions MUST remain unchanged.
+
+Seeders MUST be idempotent.
+
+No duplicate permissions.
+
+No duplicate role_permissions.
+
+No mutation of existing permission definitions.
+
+============================================================
+4. ROUTES
+============================================================
+
+All routes are inside the existing admin router.
+
+Existing router-level protection remains:
+
+router.use(authenticate);
+router.use(authorizeAdmin);
+
+Add exactly:
+
+GET    /admins
+GET    /admins/:id
+POST   /admins
+PATCH  /admins/:id
+DELETE /admins/:id
+
+GET    /admins/:id/roles
+POST   /admins/:id/roles
+DELETE /admins/:id/roles/:roleId
+
+Required route permissions:
+
+GET    /admins
+       → admin.read
+
+GET    /admins/:id
+       → admin.read
+
+POST   /admins
+       → admin.create
+
+PATCH  /admins/:id
+       → admin.update
+
+DELETE /admins/:id
+       → admin.delete
+
+GET    /admins/:id/roles
+       → admin.role.read
+
+POST   /admins/:id/roles
+       → admin.role.assign
+
+DELETE /admins/:id/roles/:roleId
+       → admin.role.revoke
+
+Nested role route ordering MUST prevent parameter conflicts.
+
+No new authorization layer.
+
+============================================================
+5. VERIFIED EXISTING INFRASTRUCTURE
+============================================================
+
+AUDIT ACTION:
+
+Existing AUDIT_ACTION already contains:
+
+CREATE = 'create'
+READ   = 'read'
+UPDATE = 'update'
+DELETE = 'delete'
+GRANT  = 'grant'
+REVOKE = 'revoke'
+
+Therefore no new generic audit action constants are required.
+
+SECURITY SEVERITY:
+
+Existing SECURITY_SEVERITY contains:
+
+LOW
+MEDIUM
+HIGH
+CRITICAL
+
+SECURITY EVENT:
+
+Existing SECURITY_EVENT does NOT currently contain the new
+Phase 3B-6 admin-specific security events.
+
+These must be added without deleting or renaming existing events.
+
+============================================================
+6. NEW SECURITY EVENTS
+============================================================
+
+Add exactly:
+
+ADMIN_SELF_ROLE_MUTATION_ATTEMPT:
+'admin.self_role_mutation_attempt'
+
+ADMIN_SELF_DEACTIVATION_ATTEMPT:
+'admin.self_deactivation_attempt'
+
+ADMIN_SELF_DELETION_ATTEMPT:
+'admin.self_deletion_attempt'
+
+ADMIN_LAST_SUPER_ADMIN_LOCKOUT_ATTEMPT:
+'admin.last_super_admin_lockout_attempt'
+
+ADMIN_PRIVILEGE_ESCALATION_ATTEMPT:
+'admin.privilege_escalation_attempt'
+
+Use appropriate:
+
+SECURITY_SEVERITY.HIGH
+
+or
+
+SECURITY_SEVERITY.CRITICAL
+
+All rejected security-sensitive attempts use:
+
+isSuccess: false
+
+Security rejection events that must survive a mutation
+transaction rollback MUST be written independently from the
+mutation transaction.
+
+If security-event logging fails:
+
+- preserve the original security/authorization rejection
+- safely log the logging failure
+- never allow the protected mutation
+
+Never log:
+
+- plaintext passwords
+- password hashes
+- session IDs
+- 2FA secrets
+- encrypted secrets
+- recovery codes
+- other credentials
+
+============================================================
+7. VERIFIED TRANSACTION ARCHITECTURE
+============================================================
+
+Existing:
+
+app/core/transactions.js
+
+provides:
+
+withTransaction()
+
+and
+
+withTransactionRetry()
+
+No new transaction helper is required.
+
+Important existing behavior:
+
+When withTransaction() receives an existing connection:
+
+- it does NOT own the transaction
+- it does NOT begin the transaction
+- it does NOT commit the transaction
+- it does NOT rollback the transaction
+- caller owns transaction lifecycle
+
+Therefore Phase 3B-6 implementation MUST use the existing
+transaction helper correctly and must not assume nested
+transactions automatically commit/rollback.
+
+============================================================
+8. VERIFIED REQUEST CONTEXT
+============================================================
+
+Existing request context provides:
+
+getRequestId()
+getUserId()
+getAdminId()
+getUserContext()
+isAuthenticated()
+isAdmin()
+
+Existing authorization middleware sets:
+
+req.admin.admin_id
+
+and request context admin identity.
+
+Actor identity MUST come from authenticated request context.
+
+Client-provided actor/admin IDs MUST NEVER be trusted.
+
+============================================================
+9. VERIFIED RESPONSE CONTRACT
+============================================================
+
+Existing response helpers include:
+
+sendSuccess(res, options)
+
+sendCreated(res, data, message, meta)
+
+sendNoContent(res)
+
+sendPaginated(res, options)
+
+sendSuccess() expects:
+
+{
+    statusCode,
+    data,
+    message,
+    meta
+}
+
+Pagination response uses:
+
+{
+    page,
+    limit,
+    total,
+    totalPages,
+    hasNext,
+    hasPrevious
+}
+
+Phase 3B-6 MUST preserve these conventions.
+
+HTTP response expectations:
+
+CREATE:
+201
+
+normal read/update/role assignment:
+200
+
+successful deletion:
+204
+
+idempotent missing role revoke:
+204
+
+============================================================
+10. VERIFIED PAGINATION
+============================================================
+
+Existing API configuration:
+
+defaultLimit:
+20
+
+maxLimit:
+100
+
+Existing pagination constants also define:
+
+DEFAULT_PAGE:
+1
+
+DEFAULT_PAGE_SIZE:
+20
+
+MAX_PAGE_SIZE:
+100
+
+GET /admins MUST use the existing pagination conventions.
+
+Do not invent a new pagination format.
+
+Do not use parseInt() as the sole security validation for
+security-sensitive identifiers.
+
+============================================================
+11. VERIFIED USERS SCHEMA
+============================================================
+
+users contains:
+
+id BIGINT UNSIGNED AUTO_INCREMENT
+uuid CHAR(36) UNIQUE NOT NULL
+username VARCHAR(50) UNIQUE NOT NULL
+email VARCHAR(255) UNIQUE NOT NULL
+password_hash VARCHAR(255) NOT NULL
+first_name VARCHAR(100) NULL
+last_name VARCHAR(100) NULL
+avatar_url VARCHAR(2048) NULL
+bio VARCHAR(1000) NULL
+status ENUM(
+    'active',
+    'inactive',
+    'suspended',
+    'banned',
+    'pending'
+)
+email_verified_at DATETIME NULL
+last_login_at DATETIME NULL
+failed_login_attempts SMALLINT UNSIGNED
+locked_until DATETIME NULL
+created_at DATETIME
+updated_at DATETIME
+deleted_at DATETIME NULL
+
+============================================================
+12. VERIFIED ADMINS SCHEMA
+============================================================
+
+admins contains:
+
+id BIGINT UNSIGNED AUTO_INCREMENT
+user_id BIGINT UNSIGNED UNIQUE NOT NULL
+admin_uuid CHAR(36) UNIQUE NOT NULL
+
+status:
+
+active
+inactive
+suspended
+
+two_factor_enabled BOOLEAN
+
+two_factor_secret_encrypted VARBINARY(512) NULL
+
+last_admin_login_at DATETIME NULL
+
+created_at
+updated_at
+deleted_at
+
+user_id references:
+
+users(id)
+
+with:
+
+ON DELETE RESTRICT
+
+============================================================
+13. VERIFIED ADMIN_ROLES SCHEMA
+============================================================
+
+admin_roles:
+
+admin_id BIGINT UNSIGNED
+role_id BIGINT UNSIGNED
+created_at DATETIME
+
+PRIMARY KEY:
+
+(admin_id, role_id)
+
+Foreign keys reference:
+
+admins(id)
+roles(id)
+
+with cascade delete on relationship rows.
+
+Phase 3B-6 MUST NOT delete admin_roles during admin
+soft-delete.
+
+They remain for historical traceability.
+
+============================================================
+14. USER CREATION ARCHITECTURE
+============================================================
+
+IMPORTANT VERIFIED FACT:
+
+There is currently NO existing user creation implementation.
+
+Therefore Phase 3B-6 MUST extend:
+
+app/repositories/user.repository.js
+
+with a transaction-aware user creation method.
+
+Recommended contract:
+
+createUser(data, connection = pool)
+
+The repository owns the SQL.
+
+The service MUST NOT contain raw user INSERT SQL.
+
+User UUID MUST be generated server-side using cryptographically
+secure random UUID generation.
+
+Client MUST NOT supply:
+
+uuid
+
+User creation requirements:
+
+- password is hashed before INSERT
+- plaintext password never stored
+- plaintext password never logged
+- email_verified_at remains NULL
+- deleted_at remains NULL
+- status is controlled server-side
+- parameterized SQL
+- transaction connection supported
+
+============================================================
+15. PASSWORD HANDLING
+============================================================
+
+Phase 3B-6 MUST reuse the existing password service.
+
+Do NOT implement a second password hashing system.
+
+Do NOT modify password.service.js unless an actual compatibility
+blocker is proven.
+
+No plaintext password may enter:
+
+- audit logs
+- security events
+- controller responses
+- database fields other than password_hash
+- application logs
+
+============================================================
+16. ADMIN CREATE
+============================================================
+
+POST /admins
+
+Request may contain:
+
+username
+email
+password
+first_name
+last_name
+avatar_url
+roleIds
+
+Optional fields must follow existing project validation
+conventions.
+
+Client MUST NOT provide:
+
+id
+uuid
+admin_uuid
+user_id
+status
+deleted_at
+password_hash
+email_verified_at
+two_factor_secret_encrypted
+failed_login_attempts
+locked_until
+
+Creation flow:
+
+BEGIN TRANSACTION
+
+1. Validate request
+2. Hash password using existing password service
+3. Create users row
+4. Create admins row
+5. Validate every requested role
+6. Validate privilege invariant for every role
+7. Insert admin_roles
+8. Write audit log
+9. COMMIT
+
+Any failure MUST rollback the complete operation.
+
+No partial:
+
+user
+admin
+role assignment
+
+may remain.
+
+New account:
+
+user.status = active
+admin.status = active
+email_verified_at = NULL
+
+If roleIds is omitted/empty:
+
+admin is created without roles.
+
+Duplicate role IDs in the request SHOULD be rejected
+deterministically.
+
+============================================================
+17. ADMIN READ DTO
+============================================================
+
+Admin responses MUST use an explicit safe DTO.
+
+Allowed admin fields:
+
+admin_id
+admin_uuid
+status
+two_factor_enabled
+last_admin_login_at
+created_at
+updated_at
+
+Nested user:
+
+id
+uuid
+username
+email
+first_name
+last_name
+avatar_url
+status
+email_verified_at
+created_at
+
+NEVER expose:
+
+password_hash
+two_factor_secret_encrypted
+failed_login_attempts
+locked_until
+deleted_at
+unnecessary internal FK fields
+other sensitive internal data
+
+============================================================
+18. ADMIN LIST
+============================================================
+
+GET /admins
+
+Must:
+
+- exclude soft-deleted admins
+- return safe DTOs
+- use parameterized pagination
+- use existing pagination conventions
+- return sendPaginated()
+
+No sensitive user/admin fields.
+
+============================================================
+19. ADMIN UPDATE
+============================================================
+
+PATCH /admins/:id
+
+Allowed fields ONLY:
+
+first_name
+last_name
+username
+status
+
+Forbidden:
+
+email
+password
+password_hash
+uuid
+admin_uuid
+user_id
+roles
+roleIds
+two_factor_enabled
+two_factor_secret_encrypted
+deleted_at
+email_verified_at
+
+Unknown/forbidden fields MUST be rejected.
+
+Empty PATCH body MUST be rejected.
+
+If:
+
+admins.deleted_at IS NOT NULL
+
+return:
+
+404 Not Found
+
+A soft-deleted admin MUST NOT be reactivated using PATCH.
+
+Allowed admin statuses:
+
+active
+inactive
+suspended
+
+============================================================
+20. EMAIL UPDATE
+============================================================
+
+Email modification is OUT OF SCOPE for Phase 3B-6.
+
+Reason:
+
+There is currently no implemented email verification flow.
+
+Therefore email changes are prohibited in this phase.
+
+This prevents the security problem of changing a verified email
+while retaining the previous email_verified_at value.
+
+============================================================
+21. ADMIN DELETE
+============================================================
+
+DELETE /admins/:id
+
+Soft delete only.
+
+Set:
+
+deleted_at = NOW()
+status = 'inactive'
+
+Do NOT:
+
+delete users row
+modify users.deleted_at
+delete admin_roles
+
+If already deleted:
+
+404
+
+============================================================
+22. DELETED ADMIN OPERATIONAL SEMANTICS
+============================================================
+
+Soft-deleted admins remain historically stored.
+
+However operational endpoints MUST treat deleted admins as
+non-existent.
+
+Therefore:
+
+GET /admins/:id
+PATCH /admins/:id
+DELETE /admins/:id
+GET /admins/:id/roles
+POST /admins/:id/roles
+DELETE /admins/:id/roles/:roleId
+
+must not operate on deleted admins.
+
+Expected result:
+
+404 Not Found
+
+Existing RBAC permission lookup already excludes:
+
+admins.deleted_at IS NULL
+admins.status = active
+
+============================================================
+23. ADMIN ROLE LIST
+============================================================
+
+GET /admins/:id/roles
+
+Return only safely projected assigned roles.
+
+Role DTO:
+
+role_id
+slug
+name
+is_system_role
+
+Deleted roles must not be treated as active operational roles.
+
+Deleted admin:
+
+404
+
+============================================================
+24. ROLE ASSIGNMENT
+============================================================
+
+POST /admins/:id/roles
+
+Request:
+
+{
+    "roleId": positive integer
+}
+
+Actor identity:
+
+authenticated request context ONLY.
+
+Target admin:
+
+URL parameter ONLY.
+
+Target role:
+
+validated request body.
+
+Rules:
+
+1. authenticate
+2. authorizeAdmin
+3. authorizePermission('admin.role.assign')
+4. validate target admin
+5. reject self-role mutation
+6. lock target admin row
+7. validate target role
+8. lock target role row
+9. load target role permissions INSIDE SAME TRANSACTION
+10. verify privilege subset
+11. insert admin_roles
+12. write audit
+13. commit
+
+Privilege invariant:
+
+permissions(targetRole) MUST be a subset of
+permissions(caller).
+
+Formally:
+
+permissions(targetRole) ⊆ permissions(caller)
+
+If the caller lacks ANY permission contained in the target role,
+assignment MUST be rejected.
+
+This prevents privilege escalation.
+
+Duplicate assignment:
+
+NO-OP
+
+Duplicate assignment:
+
+HTTP 200
+
+No audit record for duplicate no-op.
+
+============================================================
+25. ROLE REVOKE
+============================================================
+
+DELETE /admins/:id/roles/:roleId
+
+Rules:
+
+- authenticate
+- authorizeAdmin
+- authorizePermission('admin.role.revoke')
+- actor identity from request context
+- target admin from URL
+- role ID from URL
+- reject self-role mutation
+- target admin must be operational
+- role must exist and not be deleted
+- lock target admin
+- lock target role
+- enforce last-super-admin protection
+- successful delete + audit in same transaction
+
+If assignment does not exist:
+
+HTTP 204
+
+No audit record for missing assignment.
+
+============================================================
+26. SELF-MUTATION PROTECTION
+============================================================
+
+Actor MUST NOT mutate their own:
+
+- role assignment
+- role revocation
+- deactivation
+- deletion
+
+Compare normalized:
+
+callerAdminId
+targetAdminId
+
+Never trust a client-provided actor ID.
+
+Rejected self-mutation attempts MUST generate the appropriate
+security event.
+
+============================================================
+27. LAST SUPER_ADMIN PROTECTION
+============================================================
+
+The system MUST NEVER reach:
+
+0 active, non-deleted super_admin accounts.
+
+Dangerous operations include:
+
+- revoke super_admin role
+- deactivate super_admin
+- delete super_admin
+
+The check MUST be concurrency-safe.
+
+Recommended locking sequence:
+
+SELECT id
+FROM roles
+WHERE slug = 'super_admin'
+  AND deleted_at IS NULL
+FOR UPDATE;
+
+Then count active, non-deleted admins assigned to the role.
+
+If the operation would reduce the count to zero:
+
+reject operation.
+
+Generate:
+
+ADMIN_LAST_SUPER_ADMIN_LOCKOUT_ATTEMPT
+
+with appropriate high/critical severity.
+
+The check MUST NOT rely only on an unlocked application-level
+COUNT query.
+
+============================================================
+28. SYSTEM ROLE PROTECTION
+============================================================
+
+System roles remain immutable.
+
+Do NOT implement a generic RBAC bypass such as:
+
+if super_admin:
+    allow everything
+
+inside middleware.
+
+Use explicit service-level invariants.
+
+Do not allow mutation of:
+
+is_system_role = true
+
+through ordinary role management.
+
+============================================================
+29. TRANSACTION-AWARE ROLE REPOSITORY
+============================================================
+
+Verified current limitation:
+
+role.repository.findById()
+
+uses the default pool.
+
+Phase 3B-6 requires transaction-aware reads for locking.
+
+Therefore extend the repository backward-compatibly.
+
+Preferred:
+
+findById(id, connection = pool)
+
+and, where required:
+
+findByIdForUpdate(id, connection)
+
+No existing callers may break.
+
+SQL remains inside repository layer.
+
+============================================================
+30. TRANSACTION-AWARE ROLE-PERMISSION REPOSITORY
+============================================================
+
+Verified current limitation:
+
+role-permission.repository.findByRoleId()
+
+currently uses the default pool.
+
+Phase 3B-6 requires target role permission evaluation inside
+the SAME transaction.
+
+Therefore extend:
+
+findByRoleId(roleId, connection = pool)
+
+without breaking existing callers.
+
+The permission-subset check MUST use the transaction connection.
+
+============================================================
+31. ADMIN REPOSITORY
+============================================================
+
+Extend:
+
+app/repositories/admin.repository.js
+
+while preserving existing:
+
+findActiveAdminByUserId(userId)
+
+Existing behavior MUST remain:
+
+- positive integer validation
+- active admin filtering
+- deleted admin filtering
+- active user filtering
+- deleted user filtering
+- existing return shape
+
+Add transaction-aware methods required for:
+
+- admin creation
+- admin listing
+- admin lookup
+- admin update
+- admin soft-delete
+- admin role lookup
+- target admin row locking
+
+Do not break authorization middleware.
+
+============================================================
+32. SERVICE ARCHITECTURE
+============================================================
+
+Required architecture:
+
+controller
+    ↓
+validator
+    ↓
+admin.service
+    ↓
+repositories
+    ↓
+MySQL/MariaDB
+
+Business logic belongs in:
+
+app/services/auth/admin.service.js
+
+HTTP handling belongs in:
+
+app/controllers/admin/admin-account.controller.js
+
+Validation belongs in:
+
+app/validators/admin.validator.js
+
+SQL belongs in repositories.
+
+Do not place SQL in controllers/services.
+
+============================================================
+33. AUDIT LOGGING
+============================================================
+
+Existing audit actions:
+
+AUDIT_ACTION.CREATE
+AUDIT_ACTION.UPDATE
+AUDIT_ACTION.DELETE
+AUDIT_ACTION.GRANT
+AUDIT_ACTION.REVOKE
+
+Use existing constants.
+
+Stable entity types:
+
+admin
+admin_role
+
+Successful mutations MUST write audit logs in the SAME
+transaction as the mutation.
+
+No audit for idempotent role no-op.
+
+Never store passwords or secrets in before_data/after_data.
+
+============================================================
+34. SECURITY EVENT DURABILITY
+============================================================
+
+Security rejection events that are required to survive mutation
+rollback MUST be written independently of the mutation
+transaction.
+
+Examples:
+
+self role mutation
+self deactivation
+self deletion
+last super_admin lockout
+privilege escalation
+
+If the mutation later rolls back, the security event must remain.
+
+If security-event logging fails, the protected operation must
+still fail.
+
+============================================================
+35. VALIDATION
+============================================================
+
+Security-sensitive IDs must use strict positive-integer
+validation.
+
+Reject:
+
+""
+null
+"12abc"
+"1.5"
+"-1"
+0
+negative integers
+unsafe numeric values
+
+Do not rely on:
+
+parseInt()
+
+alone.
+
+Use project validation/error conventions.
+
+============================================================
+36. NO MIGRATION
+============================================================
+
+NO new database migration is required.
+
+Existing database schema already supports Phase 3B-6.
+
+Only:
+
+permissions.seeder.js
+role_permissions.seeder.js
+
+require catalog/assignment changes.
+
+============================================================
+37. NO BOOTSTRAP ADMIN
+============================================================
+
+Do NOT:
+
+- create default admin
+- create bootstrap admin
+- insert hardcoded admin
+- insert hardcoded password
+- add bootstrap credentials
+
+Admins remain:
+
+0
+
+until explicitly created.
+
+============================================================
+38. NO RATE LIMITING
+============================================================
+
+Do NOT introduce new rate limiting in Phase 3B-6.
+
+Existing rate-limit infrastructure remains untouched.
+
+Rate-limit hardening belongs to a later phase.
+
+============================================================
+39. LOCKED FILES / ARCHITECTURE
+============================================================
+
+The following existing Phase 3B security infrastructure is
+LOCKED and should not be modified unless a proven compatibility
+blocker exists:
+
+app/middleware/authentication.js
+app/middleware/authorization.js
+app/middleware/rbac.js
+app/services/auth/password.service.js
+app/services/auth/session.service.js
+app/services/auth/auth.service.js
+app/core/transactions.js
+app/repositories/audit.repository.js
+app/repositories/security.repository.js
+app/core/request-context.js
+
+Do not create duplicate versions of these components.
+
+============================================================
+40. PHASE 3B-6 FILE PLAN
+============================================================
+
+CREATE:
+
+app/services/auth/admin.service.js
+
+app/controllers/admin/admin-account.controller.js
+
+app/validators/admin.validator.js
+
+
+MODIFY:
+
+app/repositories/admin.repository.js
+
+app/repositories/user.repository.js
+
+app/repositories/role.repository.js
+
+app/repositories/role-permission.repository.js
+
+database/seeders/permissions.seeder.js
+
+database/seeders/role_permissions.seeder.js
+
+app/core/constants.js
+
+app/routes/admin.routes.js
+
+Permission repository/RBAC service should only be modified if
+actually required by implementation compatibility.
+
+============================================================
+41. IMPLEMENTATION BOUNDARY
+============================================================
+
+DO NOT implement:
+
+- email verification
+- password reset
+- 2FA management
+- WebAuthn
+- OAuth
+- admin restore
+- role creation UI
+- permission creation
+- rate limiting
+- caching
+- queues
+- notifications
+- analytics
+- bootstrap admin
+- new database migrations
+
+These belong to later phases.
+
+============================================================
+42. REQUIRED IMPLEMENTATION QUALITY
+============================================================
+
+Implementation MUST:
+
+- preserve Phase 3B-5A
+- preserve Phase 3B-5B
+- preserve Phase 3B-5C
+- preserve existing authentication
+- preserve existing authorization
+- preserve existing RBAC
+- preserve existing session security
+- use ES modules
+- remain compatible with current Node.js/package setup
+- use parameterized SQL
+- avoid SQL injection
+- avoid privilege escalation
+- avoid IDOR-style admin access
+- avoid self-escalation
+- avoid self-deactivation
+- avoid self-deletion
+- prevent removal of final super_admin
+- prevent system-role mutation
+- maintain transaction atomicity
+- maintain auditability
+- maintain security-event durability
+- never expose secrets
+
+============================================================
+43. PHASE 3B-6 VERIFICATION CHECKLIST
+============================================================
+
+Before declaring Phase 3B-6 COMPLETE:
+
+[ ] 60 permissions
+[ ] 126 role_permissions
+[ ] 8 roles
+[ ] 0 admins before runtime creation
+[ ] 0 admin_roles before runtime creation
+
+[ ] Seeder first run correct
+[ ] Seeder second run idempotent
+
+[ ] All changed files pass node --check
+[ ] Dynamic imports pass
+[ ] No route conflicts
+
+[ ] GET /admins protected by admin.read
+[ ] GET /admins/:id protected by admin.read
+[ ] POST /admins protected by admin.create
+[ ] PATCH /admins/:id protected by admin.update
+[ ] DELETE /admins/:id protected by admin.delete
+[ ] GET /admins/:id/roles protected by admin.role.read
+[ ] POST /admins/:id/roles protected by admin.role.assign
+[ ] DELETE /admins/:id/roles/:roleId protected by admin.role.revoke
+
+[ ] Admin creation is atomic
+[ ] Initial role assignment is atomic
+[ ] User UUID server-generated
+[ ] Admin UUID server-generated
+[ ] Password hashed
+[ ] Password never logged
+[ ] email_verified_at remains NULL
+
+[ ] Safe admin DTO
+[ ] password_hash never exposed
+[ ] 2FA secret never exposed
+[ ] login lock fields never exposed
+[ ] deleted_at never exposed
+
+[ ] Email update rejected
+[ ] Deleted admin returns 404
+[ ] Deleted admin cannot be reactivated
+[ ] Admin delete does not delete user
+[ ] Admin delete does not delete admin_roles
+
+[ ] Self-role mutation rejected
+[ ] Self-deactivation rejected
+[ ] Self-deletion rejected
+
+[ ] Permission subset invariant enforced
+[ ] Privilege escalation rejected
+[ ] System role protected
+[ ] Last super_admin protected
+
+[ ] Target admin row locking works
+[ ] Target role row locking works
+[ ] Role permission lookup uses transaction connection
+
+[ ] Successful mutation has audit log
+[ ] Idempotent role assignment has no audit
+[ ] Idempotent role revoke has no audit
+[ ] Security rejection events survive rollback
+[ ] Security logging failure never permits mutation
+
+[ ] No migration
+[ ] No bootstrap admin
+[ ] No new dependency
+[ ] No rate limiter added
+
+============================================================
+44. FINAL PHASE STATUS
+============================================================
+
+PHASE 3B-6:
+
+ARCHITECTURE:
+APPROVED + LOCKED
+
+IMPLEMENTATION:
+NOT STARTED
+
+NEXT STEP:
+
+Generate implementation code according to this locked
+architecture.
+
+The generated code must be reviewed before being copied into
+the Termux project.
+
+============================================================
+END OF PHASE 3B-6 AUDIT BLOCK
+============================================================
