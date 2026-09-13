@@ -1,0 +1,850 @@
+import { getDbPool } from '../config/database.config.js';
+import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import helmet from 'helmet';
+import cors from 'cors';
+import cookieParser from 'cookie-parser';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import session from 'express-session';
+import pinoHttp from 'pino-http';
+import { randomBytes } from 'crypto';
+
+// Configuration imports
+import appConfig from '../config/app.config.js';
+import securityConfig from '../config/security.config.js';
+import sessionConfig, { getSessionSecret } from '../config/session.config.js';
+import corsConfig from '../config/cors.config.js';
+import apiConfig from '../config/api.config.js';
+import uploadConfig from '../config/upload.config.js';
+import rateLimitConfig from '../config/rate-limit.config.js';
+
+// Core imports
+import logger from './logger.js';
+import { AppError, ErrorCodes } from './errors.js';
+import { generateRequestId } from './constants.js';
+import { getRequestContext, runWithRequestContext } from './request-context.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Project root path (~/Tesnow)
+const PROJECT_ROOT = path.resolve(__dirname, '../..');
+
+// Initialize Express app
+const app = express();
+
+// ----------------------------------------------------------------------------
+// 1. ENVIRONMENT & CONFIGURATION
+// ----------------------------------------------------------------------------
+
+const NODE_ENV = appConfig.NODE_ENV || 'development';
+const IS_PRODUCTION = NODE_ENV === 'production';
+
+// ----------------------------------------------------------------------------
+// 2. BASIC EXPRESS HARDENING
+// ----------------------------------------------------------------------------
+
+// Disable fingerprinting headers
+app.disable('x-powered-by');
+
+// Trust proxy configuration
+if (appConfig.TRUST_PROXY !== undefined) {
+    app.set('trust proxy', appConfig.TRUST_PROXY);
+} else {
+    // Only trust proxy if explicitly configured
+    app.set('trust proxy', false);
+}
+
+// ----------------------------------------------------------------------------
+// 3. REQUEST ID
+// ----------------------------------------------------------------------------
+
+app.use((req, res, next) => {
+    // Use incoming X-Request-ID if present and trusted, otherwise generate
+    const incomingRequestId = req.headers['x-request-id'];
+    const requestId = (incomingRequestId && typeof incomingRequestId === 'string')
+        ? incomingRequestId
+        : generateRequestId();
+
+    // Store in request for logging/error handling
+    req.id = requestId;
+
+    // Set response header
+    res.setHeader('X-Request-ID', requestId);
+
+    // Create request context for async operations
+    runWithRequestContext({ requestId }, () => {
+        next();
+    });
+});
+
+// ----------------------------------------------------------------------------
+// 4. LOGGING
+// ----------------------------------------------------------------------------
+
+if (logger && typeof logger.pinoHttp === 'function') {
+    // Use pino-http for request logging
+    app.use(pinoHttp({
+        logger: logger,
+        genReqId: (req) => req.id,
+        // Redact sensitive data from logs
+        redact: {
+            paths: [
+                'req.headers.authorization',
+                'req.headers.cookie',
+                'req.headers["x-api-key"]',
+                'req.body.password',
+                'req.body.token',
+                'req.body.secret',
+                'req.body.creditCard',
+                'req.body.cvv',
+                'req.body.newPassword',
+                'req.body.currentPassword',
+                'req.body.confirmPassword',
+            ],
+            censor: '***REDACTED***'
+        },
+        // Don't log full request bodies by default
+        serializers: {
+            req: (req) => ({
+                id: req.id,
+                method: req.method,
+                url: req.url,
+                headers: req.headers,
+                remoteAddress: req.remoteAddress,
+                remotePort: req.remotePort,
+            }),
+            res: (res) => ({
+                statusCode: res.statusCode,
+                headers: res.headers,
+            }),
+        },
+        // Customize log level based on status code
+        customLogLevel: (req, res, err) => {
+            if (res.statusCode >= 500 || err) return 'error';
+            if (res.statusCode >= 400) return 'warn';
+            return 'info';
+        },
+        // Custom success message
+        customSuccessMessage: (req, res) => {
+            return `${req.method} ${req.url} ${res.statusCode}`;
+        },
+        // Custom error message
+        customErrorMessage: (req, res, err) => {
+            return `${req.method} ${req.url} ${res.statusCode} - ${err.message}`;
+        },
+    }));
+} else {
+    // Fallback logging middleware if logger not available
+    app.use((req, res, next) => {
+        const start = Date.now();
+        res.on('finish', () => {
+            const duration = Date.now() - start;
+            // Simple console logging as fallback
+            console.log(`${req.method} ${req.url} ${res.statusCode} ${duration}ms [${req.id}]`);
+        });
+        next();
+    });
+}
+
+// ----------------------------------------------------------------------------
+// 5. SECURITY HEADERS
+// ----------------------------------------------------------------------------
+
+// Base Helmet configuration
+const helmetConfig = {
+    // Content Security Policy - configured for EJS/static assets
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-inline'"], // EJS may need inline scripts
+            styleSrc: ["'self'", "'unsafe-inline'"], // EJS styles
+            imgSrc: ["'self'", 'data:', 'https:'],
+            fontSrc: ["'self'"],
+            connectSrc: ["'self'"],
+            frameSrc: ["'self'"],
+            objectSrc: ["'none'"],
+            baseUri: ["'self'"],
+            formAction: ["'self'"],
+            upgradeInsecureRequests: IS_PRODUCTION ? [] : null,
+        },
+        reportOnly: !IS_PRODUCTION,
+    },
+    // Additional security headers
+    xContentTypeOptions: true,
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    hsts: IS_PRODUCTION ? {
+        maxAge: 31536000,
+        includeSubDomains: true,
+        preload: true,
+    } : false,
+    frameguard: { action: 'deny' },
+    dnsPrefetchControl: { allow: false },
+    permissionsPolicy: {
+        features: {
+            geolocation: ["'self'"],
+            microphone: ["'none'"],
+            camera: ["'none'"],
+            payment: ["'self'"],
+            syncXhr: ["'self'"],
+            // Add additional permissions as needed
+        }
+    },
+    crossOriginEmbedderPolicy: false, // Allow embedding for blog content
+};
+
+// Use Helmet with secure configuration
+app.use(helmet(helmetConfig));
+
+// Additional security headers not covered by Helmet
+app.use((req, res, next) => {
+    // Prevent MIME type sniffing (already set by Helmet, but ensure)
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+
+    // Remove potential server information (already removed by app.disable)
+    // Additional header protections
+    res.setHeader('X-DNS-Prefetch-Control', 'off');
+
+    // Only set HSTS in production
+    if (IS_PRODUCTION) {
+        res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+    }
+
+    next();
+});
+
+// ----------------------------------------------------------------------------
+// 6. CORS
+// ----------------------------------------------------------------------------
+
+let corsOptions = {
+    origin: false, // Disabled by default - will be configured
+    credentials: false,
+};
+
+if (corsConfig) {
+    const allowedOrigins = corsConfig.ALLOWED_ORIGINS || [];
+    const allowCredentials = corsConfig.CREDENTIALS === true;
+
+    if (Array.isArray(allowedOrigins) && allowedOrigins.length > 0) {
+        // Validate origins
+        const validatedOrigins = allowedOrigins.filter(origin => {
+            try {
+                const url = new URL(origin);
+                return url.protocol === 'http:' || url.protocol === 'https:';
+            } catch {
+                // If it's not a valid URL, check if it's a regex pattern
+                // For simplicity, we'll allow it
+                return true;
+            }
+        });
+
+        if (validatedOrigins.length > 0) {
+            corsOptions = {
+                origin: function (origin, callback) {
+                    // Allow requests with no origin (like mobile apps, curl)
+                    if (!origin) return callback(null, true);
+
+                    // Check if origin is allowed
+                    const isAllowed = validatedOrigins.some(allowed => {
+                        if (allowed === '*') return false; // Never allow wildcard with credentials
+                        return origin === allowed || origin.endsWith(allowed.substring(1));
+                    });
+
+                    // Also check for localhost in development
+                    if (!isAllowed && !IS_PRODUCTION) {
+                        // Allow localhost for development
+                        const localhostRegex = /^https?:\/\/localhost(:\d+)?$/;
+                        const ipRegex = /^https?:\/\/127\.0\.0\.1(:\d+)?$/;
+                        if (localhostRegex.test(origin) || ipRegex.test(origin)) {
+                            return callback(null, true);
+                        }
+                    }
+
+                    callback(null, isAllowed);
+                },
+                credentials: allowCredentials,
+                optionsSuccessStatus: 200,
+                methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+                allowedHeaders: [
+                    'Origin',
+                    'X-Requested-With',
+                    'Content-Type',
+                    'Accept',
+                    'Authorization',
+                    'X-Request-ID',
+                    'X-CSRF-Token',
+                    'X-API-Key',
+                ],
+                exposedHeaders: ['X-Request-ID', 'X-RateLimit-Limit', 'X-RateLimit-Remaining'],
+                maxAge: 86400, // 24 hours
+            };
+        }
+    } else if (!IS_PRODUCTION) {
+        // Development fallback - allow localhost only
+        corsOptions = {
+            origin: function (origin, callback) {
+                if (!origin) return callback(null, true);
+                const allowed = [
+                    'http://localhost:3000',
+                    'http://localhost:5173',
+                    'http://127.0.0.1:3000',
+                    'http://127.0.0.1:5173',
+                ];
+                // Also allow development server ports
+                if (allowed.includes(origin) || origin.startsWith('http://localhost:')) {
+                    return callback(null, true);
+                }
+                callback(null, false);
+            },
+            credentials: true,
+            optionsSuccessStatus: 200,
+        };
+    }
+}
+
+app.use(cors(corsOptions));
+
+// Handle preflight requests
+app.options('/{*splat}', cors(corsOptions));
+
+// ----------------------------------------------------------------------------
+// 7. COOKIE PARSER
+// ----------------------------------------------------------------------------
+
+// Use cookie parser with secret for signed cookies
+const cookieSecret = securityConfig.COOKIE_SECRET || '';
+
+if (!cookieSecret && IS_PRODUCTION) {
+    logger.error('Cookie secret is required in production');
+    // In production, fail closed
+    throw new Error('Cookie secret is required in production');
+}
+
+app.use(cookieParser(cookieSecret, {
+    // Cookie parser options
+    decode: (str) => {
+        try {
+            return decodeURIComponent(str);
+        } catch {
+            return str;
+        }
+    }
+}));
+
+// ----------------------------------------------------------------------------
+// 8. BODY PARSERS
+// ----------------------------------------------------------------------------
+
+// JSON body parser with strict limits
+app.use(express.json({
+    limit: '1mb',
+    strict: true, // Only accept proper JSON
+    verify: (req, res, buf) => {
+        // Store raw body for validation if needed
+        req.rawBody = buf;
+    }
+}));
+
+// URL-encoded body parser
+app.use(express.urlencoded({
+    extended: true,
+    limit: '1mb',
+    parameterLimit: 1000,
+}));
+
+// Handle malformed JSON gracefully
+app.use((err, req, res, next) => {
+    if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+        return res.status(400).json({
+            success: false,
+            error: {
+                code: 'BAD_REQUEST',
+                message: 'Invalid JSON payload',
+            },
+            requestId: req.id,
+        });
+    }
+    next(err);
+});
+
+// Payload too large handler
+app.use((err, req, res, next) => {
+    if (err.code === 'LIMIT_FILE_SIZE' || err.type === 'entity.too.large') {
+        return res.status(413).json({
+            success: false,
+            error: {
+                code: 'PAYLOAD_TOO_LARGE',
+                message: 'Request entity too large',
+            },
+            requestId: req.id,
+        });
+    }
+    next(err);
+});
+
+// ----------------------------------------------------------------------------
+// 9. SESSION
+// ----------------------------------------------------------------------------
+
+let sessionOptions = {
+    secret: getSessionSecret(),
+    resave: false,
+    saveUninitialized: false,
+    name: 'tesnow.sid',
+    cookie: {
+        httpOnly: true,
+        secure: IS_PRODUCTION,
+        sameSite: 'lax',
+        maxAge: sessionConfig.MAX_AGE || 24 * 60 * 60 * 1000, // 24 hours default
+        path: '/',
+        domain: sessionConfig.DOMAIN || undefined,
+    },
+    store: sessionConfig.STORE || undefined, // Use MemoryStore by default (not for production)
+};
+
+// Validate session secret in production
+if (!sessionOptions.secret && IS_PRODUCTION) {
+    logger.error('Session secret is required in production');
+    throw new Error('Session secret is required in production');
+}
+
+// Use memory store only in development, warn about it
+if (!sessionOptions.store) {
+    if (IS_PRODUCTION) {
+        logger.error('External session store is required in production');
+        throw new Error('External session store is required in production');
+    } else {
+        // Use MemoryStore for development with warnings
+        const MemoryStore = session.MemoryStore;
+        sessionOptions.store = new MemoryStore();
+        logger.warn('Using MemoryStore for sessions - not suitable for production');
+    }
+}
+
+// Additional session security options
+if (IS_PRODUCTION) {
+    sessionOptions.cookie.secure = true;
+    sessionOptions.cookie.sameSite = 'strict';
+    sessionOptions.proxy = true; // Trust proxy in production
+}
+
+app.use(session(sessionOptions));
+
+// ----------------------------------------------------------------------------
+// 10. RATE LIMITING
+// ----------------------------------------------------------------------------
+
+// Global rate limiter
+const globalRateLimiter = rateLimit({
+    windowMs: rateLimitConfig.WINDOW_MS || 15 * 60 * 1000, // 15 minutes
+    max: rateLimitConfig.MAX_REQUESTS || 100,
+    message: {
+        success: false,
+        error: {
+            code: 'RATE_LIMIT_EXCEEDED',
+            message: 'Too many requests, please try again later.',
+        },
+        requestId: (req) => req.id || 'unknown',
+    },
+    standardHeaders: 'draft-7', // Return rate limit headers
+    legacyHeaders: false,
+    keyGenerator: (req) => {
+        return ipKeyGenerator(req.ip || req.connection.remoteAddress || 'unknown');
+    },
+    handler: (req, res) => {
+        res.status(429).json({
+            success: false,
+            error: {
+                code: 'RATE_LIMIT_EXCEEDED',
+                message: 'Too many requests, please try again later.',
+            },
+            requestId: req.id || 'unknown',
+        });
+    },
+});
+
+// Apply global rate limiter
+app.use(globalRateLimiter);
+
+// ----------------------------------------------------------------------------
+// 11. STATIC FILES
+// ----------------------------------------------------------------------------
+
+// Serve static files securely
+const publicDir = path.join(PROJECT_ROOT, 'public');
+app.use('/static', express.static(publicDir, {
+    maxAge: IS_PRODUCTION ? '1y' : 0,
+    index: false, // Disable directory index
+    dotfiles: 'deny', // Deny access to .files
+    etag: true,
+    lastModified: true,
+    setHeaders: (res, path) => {
+        // Additional security headers for static files
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('Cache-Control', 'public, max-age=31536000');
+    }
+}));
+
+// Serve uploads from storage (if configured)
+if (uploadConfig.UPLOAD_DIR) {
+    const uploadDir = path.resolve(uploadConfig.UPLOAD_DIR);
+    // Only serve if path exists and is not in project root
+    if (uploadDir !== PROJECT_ROOT && !uploadDir.includes('..')) {
+        app.use('/uploads', express.static(uploadDir, {
+            maxAge: IS_PRODUCTION ? '1d' : 0,
+            index: false,
+            dotfiles: 'deny',
+            etag: true,
+            lastModified: true,
+        }));
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 12. EJS VIEW ENGINE
+// ----------------------------------------------------------------------------
+
+app.set('view engine', 'ejs');
+const viewsDir = path.join(PROJECT_ROOT, 'views');
+app.set('views', viewsDir);
+
+// Set view cache based on environment
+app.set('view cache', IS_PRODUCTION);
+
+// ----------------------------------------------------------------------------
+// 13. HEALTH ENDPOINT
+// ----------------------------------------------------------------------------
+
+app.get('/health', (req, res) => {
+    res.json({
+        success: true,
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        environment: NODE_ENV,
+        requestId: req.id || 'unknown',
+    });
+});
+
+// Liveness endpoint (simple)
+app.get('/live', (req, res) => {
+    res.json({
+        success: true,
+        status: 'alive',
+        timestamp: new Date().toISOString(),
+        requestId: req.id || 'unknown',
+    });
+});
+
+// Readiness endpoint (could check dependencies)
+app.get('/ready', async (req, res) => {
+    try {
+        const pool = getDbPool();
+        const connection = await pool.getConnection();
+
+        try {
+            await connection.query('SELECT 1');
+        } finally {
+            connection.release();
+        }
+
+        return res.status(200).json({
+            success: true,
+            status: 'ready',
+            database: 'ready',
+            timestamp: new Date().toISOString(),
+            requestId: req.id || 'unknown',
+        });
+    } catch (error) {
+        return res.status(503).json({
+            success: false,
+            status: 'not_ready',
+            database: 'unavailable',
+            timestamp: new Date().toISOString(),
+            requestId: req.id || 'unknown',
+        });
+    }
+});
+
+// ----------------------------------------------------------------------------
+// 14. ROUTE MOUNTING
+// ----------------------------------------------------------------------------
+
+// Use API prefix from config
+const API_PREFIX = apiConfig.PREFIX || '/api';
+const API_VERSION = apiConfig.VERSION || 'v1';
+
+// Create router for API routes
+const apiRouter = express.Router();
+
+// Mount API routes (future implementation)
+// These will be imported and mounted as they are implemented
+try {
+    // Example: import and mount routes
+    // import userRoutes from '../routes/api/v1/users.js';
+    // apiRouter.use('/users', userRoutes);
+} catch (error) {
+    logger.debug('API routes not yet implemented');
+}
+
+// Mount API router with prefix
+app.use(`${API_PREFIX}/${API_VERSION}`, apiRouter);
+
+// Web routes (future implementation)
+const webRouter = express.Router();
+// Mount web routes
+try {
+    // import webRoutes from '../routes/web.js';
+    // webRouter.use('/', webRoutes);
+} catch (error) {
+    logger.debug('Web routes not yet implemented');
+}
+app.use('/', webRouter);
+
+// Admin routes (future implementation)
+const adminRouter = express.Router();
+try {
+    // import adminRoutes from '../routes/admin.js';
+    // adminRouter.use('/', adminRoutes);
+} catch (error) {
+    logger.debug('Admin routes not yet implemented');
+}
+app.use('/admin', adminRouter);
+
+// ----------------------------------------------------------------------------
+// 15. 404 HANDLER
+// ----------------------------------------------------------------------------
+
+app.use((req, res, next) => {
+    const isApiRequest = req.path.startsWith('/api') ||
+                         req.accepts('json') ||
+                         req.xhr ||
+                         req.path.startsWith('/api/');
+
+    if (isApiRequest) {
+        res.status(404).json({
+            success: false,
+            error: {
+                code: 'NOT_FOUND',
+                message: 'Resource not found',
+            },
+            requestId: req.id,
+            path: req.path,
+        });
+    } else {
+        // Try to render 404 page
+        res.status(404);
+        if (res.render) {
+            res.render('errors/404', {
+                title: 'Page Not Found',
+                requestId: req.id,
+                path: req.path,
+                user: req.session?.user || null,
+            }, (err, html) => {
+                if (err) {
+                    // Fallback to plain text
+                    res.status(404).send('Page Not Found');
+                } else {
+                    res.send(html);
+                }
+            });
+        } else {
+            res.send('Page Not Found');
+        }
+    }
+});
+
+// ----------------------------------------------------------------------------
+// 16. CENTRALIZED ERROR HANDLER
+// ----------------------------------------------------------------------------
+
+app.use((err, req, res, next) => {
+    // Log error with request ID
+    const requestId = req.id || 'unknown';
+    const errorLog = {
+        requestId,
+        method: req.method,
+        url: req.url,
+        ip: req.ip,
+        userAgent: req.get('user-agent'),
+        error: {
+            message: err.message,
+            stack: !IS_PRODUCTION ? err.stack : undefined,
+            code: err.code || err.name || 'UNKNOWN_ERROR',
+        },
+    };
+
+    // Log error (use logger if available)
+    if (logger && typeof logger.error === 'function') {
+        logger.error(errorLog);
+    } else {
+        console.error(JSON.stringify(errorLog, null, 2));
+    }
+
+    // Determine status code
+    let statusCode = err.statusCode || err.status || 500;
+    let errorCode = err.code || 'INTERNAL_SERVER_ERROR';
+    let message = err.message || 'An unexpected error occurred';
+
+    // Handle specific error types
+    if (err instanceof AppError) {
+        statusCode = err.statusCode || 500;
+        errorCode = err.code || 'APPLICATION_ERROR';
+        message = err.message;
+    } else if (err.name === 'UnauthorizedError' || err.code === 'UNAUTHORIZED') {
+        statusCode = 401;
+        errorCode = 'UNAUTHORIZED';
+        message = 'Authentication required';
+    } else if (err.name === 'ForbiddenError' || err.code === 'FORBIDDEN') {
+        statusCode = 403;
+        errorCode = 'FORBIDDEN';
+        message = 'Access denied';
+    } else if (err.name === 'ValidationError' || err.code === 'VALIDATION_ERROR') {
+        statusCode = 400;
+        errorCode = 'VALIDATION_ERROR';
+        message = 'Validation failed';
+    } else if (err.type === 'entity.too.large') {
+        statusCode = 413;
+        errorCode = 'PAYLOAD_TOO_LARGE';
+        message = 'Request entity too large';
+    } else if (err.code === 'PROXY_AUTHENTICATION_REQUIRED') {
+        statusCode = 407;
+        errorCode = 'PROXY_AUTHENTICATION_REQUIRED';
+        message = 'Proxy authentication required';
+    } else if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') {
+        statusCode = 503;
+        errorCode = 'SERVICE_UNAVAILABLE';
+        message = 'Service temporarily unavailable';
+    }
+
+    // Don't expose internal errors in production
+    if (IS_PRODUCTION && statusCode === 500) {
+        message = 'An unexpected error occurred';
+        errorCode = 'INTERNAL_SERVER_ERROR';
+    }
+
+    // Build error response
+    const errorResponse = {
+        success: false,
+        error: {
+            code: errorCode,
+            message: message,
+        },
+        requestId: requestId,
+    };
+
+    // Add validation details if available
+    if (err.validationErrors && !IS_PRODUCTION) {
+        errorResponse.error.details = err.validationErrors;
+    }
+
+    // Add additional info in development
+    if (!IS_PRODUCTION) {
+        errorResponse.error.stack = err.stack;
+        errorResponse.error.type = err.constructor.name;
+        errorResponse.path = req.path;
+        errorResponse.method = req.method;
+    }
+
+    // Determine response format
+    const isApiRequest = req.path.startsWith('/api') ||
+                         req.accepts('json') ||
+                         req.xhr;
+
+    if (isApiRequest) {
+        res.status(statusCode).json(errorResponse);
+    } else {
+        // For web requests, render error page
+        res.status(statusCode);
+        if (res.render) {
+            res.render('errors/error', {
+                title: `Error ${statusCode}`,
+                statusCode: statusCode,
+                message: message,
+                requestId: requestId,
+                user: req.session?.user || null,
+            }, (err, html) => {
+                if (err) {
+                    res.status(statusCode).send(`Error ${statusCode}: ${message}`);
+                } else {
+                    res.send(html);
+                }
+            });
+        } else {
+            res.status(statusCode).send(`Error ${statusCode}: ${message}`);
+        }
+    }
+});
+
+// ----------------------------------------------------------------------------
+// 17. EXPORT APP
+// ----------------------------------------------------------------------------
+
+export default app;
+
+// ----------------------------------------------------------------------------
+// EXPLANATION
+// ----------------------------------------------------------------------------
+
+/**
+ * MIDDLEWARE ORDER EXPLANATION
+ * 
+ * 1. Environment/Config - Early setup for conditional behavior
+ * 2. Express Hardening - Disable fingerprinting, trust proxy
+ * 3. Request ID - Every request gets ID before logging
+ * 4. Logging - Logs include request ID from step 3
+ * 5. Security Headers - Helmet applies security protections
+ * 6. CORS - Cross-origin configuration
+ * 7. Cookie Parser - Parse cookies for session/authentication
+ * 8. Body Parsers - Parse request bodies with strict limits
+ * 9. Session - Session management after cookies/body parsing
+ * 10. Rate Limiting - Global rate limiter after session
+ * 11. Static Assets - Serve static files before routing
+ * 12. Routes - Application routes
+ * 13. 404 Handler - Catch-all for unmatched routes
+ * 14. Error Handler - Centralized error handling
+ * 
+ * SECURITY PROTECTIONS
+ * 
+ * - Helmet with CSP configured for EJS/blogging platform
+ * - CORS with origin validation and credential handling
+ * - Session with secure cookie settings
+ * - Rate limiting to prevent abuse
+ * - Body size limits to prevent DoS attacks
+ * - Request ID for tracing
+ * - Strict static file serving
+ * - Secure cookie parsing
+ * - Request logging with sensitive data redaction
+ * - No exposure of stack traces in production
+ * - Graceful error handling with safe responses
+ * 
+ * ROUTE MOUNTING STRATEGY
+ * 
+ * - API routes mounted at /api/v1/
+ * - Web routes mounted at / (root)
+ * - Admin routes mounted at /admin/
+ * - Routes are prepared for future implementation
+ * - Missing route files won't crash the app
+ * 
+ * PRODUCTION CONSIDERATIONS
+ * 
+ * - Fails closed for missing critical configuration
+ * - HTTPS enforced via HSTS in production
+ * - Secure session cookies in production
+ * - External session store required
+ * - Trust proxy configured correctly
+ * - No database connection in app.js
+ * - Graceful shutdown compatible
+ * - Comprehensive logging with request IDs
+ * - Rate limiting to prevent abuse
+ * 
+ * DEPENDENCY ASSUMPTIONS
+ * 
+ * - Configuration modules exist and export expected properties
+ * - Logger module exists in app/core/logger.js
+ * - Views directory exists at ~/Tesnow/views
+ * - Static files directory exists at ~/Tesnow/public
+ * - Upload directory configured in upload.config.js
+ * - Session store configured for production
+ */ 

@@ -1,0 +1,301 @@
+# ============================================
+# TESNOW — Git Ignore
+# ============================================
+# Security-focused ignore rules for Tesnow
+# Node.js + Express.js + MySQL
+#
+# NEVER commit real secrets, credentials,
+# private keys, runtime uploads, logs or backups.
+# ============================================
+
+
+# ============================================
+# ENVIRONMENT & SECRETS
+# ============================================
+
+.env
+.env.*
+!.env.example
+!.env.template
+
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.csr
+
+secrets/
+credentials/
+
+*.secret
+*.private
+
+config/local.*
+config/*.local.json
+config/*.local.js
+
+
+# ============================================
+# NODE.JS
+# ============================================
+
+node_modules/
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# IMPORTANT:
+# package-lock.json MUST remain tracked.
+
+
+# ============================================
+# LOGS & RUNTIME DATA
+# ============================================
+
+logs/
+*.log
+*.log.*
+
+storage/cache/
+storage/sessions/
+storage/temp/
+storage/quarantine/
+
+tmp/
+temp/
+.tmp/
+
+*.tmp
+*.temp
+
+
+# ============================================
+# USER UPLOADS & GENERATED MEDIA
+# ============================================
+
+storage/uploads/
+storage/processed/
+storage/thumbnails/
+storage/avatars/
+storage/media/
+
+public/uploads/
+
+*.uploaded
+
+
+# ============================================
+# BACKUPS & EXPORTS
+# ============================================
+
+database/backups/
+storage/backups/
+storage/exports/
+analytics/exports/
+
+*.backup
+*.dump
+*.sql.gz
+
+backup-*.sql
+
+
+# ============================================
+# TEST GENERATED DATA
+# ============================================
+
+coverage/
+test-results/
+playwright-report/
+.vitest/
+.nyc_output/
+
+test/dumps/
+test/temp/
+
+*.test.log
+*.test.sqlite
+
+
+# ============================================
+# BUILD & GENERATED FILES
+# ============================================
+
+dist/
+build/
+.cache/
+.next/
+.output/
+.vercel/
+out/
+
+assets/compiled/
+
+
+# ============================================
+# OPERATING SYSTEM FILES
+# ============================================
+
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+.directory
+*~
+
+
+# ============================================
+# EDITORS & IDEs
+# ============================================
+
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+.vscode/*.code-snippets
+
+.idea/
+*.iml
+*.iws
+*.ipr
+.idea_modules/
+
+.history
+
+*.sublime-project
+*.sublime-workspace
+
+*.swp
+*.swo
+
+.\#*
+\#*\#
+
+
+# ============================================
+# TERMUX / ANDROID
+# ============================================
+
+.termux/
+storage/.android/
+
+*.apk
+*.aab
+*.dex
+*.class
+*.apk.temp
+
+
+# ============================================
+# LOCAL DATABASE FILES
+# ============================================
+
+*.sqlite
+*.sqlite3
+*.db
+*.db3
+*.mydb
+
+*.myi
+*.myd
+*.frm
+
+mysql-data/
+
+*.ibd
+*.ibdata
+*.logfile
+
+
+# ============================================
+# GENERATED ARCHIVES
+# ============================================
+
+*.tgz
+*.tar
+*.zip
+*.rar
+
+
+# ============================================
+# DEBUGGING / PROFILING
+# ============================================
+
+*.heapdump
+*.cpuprofile
+*.heapsnapshot
+*.v8.log
+
+*.lcov
+*.lcov.info
+
+
+# ============================================
+# GENERATED DOCUMENTATION
+# ============================================
+
+docs/_build/
+docs/generated/
+apidoc/
+
+
+# ============================================
+# CLOUD / EXTERNAL SERVICE CREDENTIALS
+# ============================================
+
+*.aws-credentials
+*.gcloud-key.json
+*.azure-key.json
+*.service-account.json
+
+
+# ============================================
+# SESSION STORES
+# ============================================
+
+session-store/
+*.session
+
+
+# ============================================
+# IMPORTANT
+# ============================================
+# The following MUST remain trackable:
+#
+# package.json
+# package-lock.json
+# .env.example
+# README.md
+# CHANGELOG.md
+# LICENSE
+# app/
+# views/
+# public/
+# admin/
+# user/
+# api/
+# database/migrations/
+# database/schema/
+# database/seeders/
+# database/factories/
+# database/fixtures/
+# security/
+# jobs/
+# emails/
+# localization/
+# analytics/
+# monitoring/
+# tests/
+# scripts/
+# docs/

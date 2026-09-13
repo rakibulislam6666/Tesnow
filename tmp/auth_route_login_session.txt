@@ -1,0 +1,295 @@
+357-        };
+358-    }
+359-}
+360-
+361-// -----------------------------------------------------------------------------
+362-// POST /login
+363-// -----------------------------------------------------------------------------
+364-
+365-router.post('/login', async (req, res, next) => {
+366-    const requestId = getRequestId() || req.id || null;
+367-
+368-    try {
+369-        const { identifier, password } = readLoginCredentials(req.body);
+370-
+371-        /*
+372-         * Credential verification belongs exclusively to authService.
+373-         * Failed authentication must not create an authenticated session.
+374-         */
+375-        const user = await authService.login(identifier, password);
+376-
+377-        if (!user || typeof user !== 'object') {
+378-            throw new AuthenticationError('Authentication failed');
+379-        }
+380-
+381-        if (!Number.isSafeInteger(user.id) || user.id <= 0) {
+382-            throw new AuthenticationError('Authentication failed');
+383-        }
+384-
+385-        /*
+386-         * From this point onward, every failure must destroy the newly
+387:         * regenerated session. This preserves the invariant:
+388-         *
+389-         * authenticated Express session
+390-         *       ⇔
+391-         * corresponding authenticated DB session
+392-         */
+393-        try {
+394-            if (!req.session) {
+395-                throw new Error('Session is not available');
+396-            }
+397-
+398-            /*
+399-             * Session fixation protection:
+400-             * always regenerate before attaching authenticated identity.
+401-             */
+402-            await callSessionMethod(req.session, 'regenerate');
+403-
+404-            req.session.userId = user.id;
+405-
+406-            const expiresAt = resolveSessionExpiry(req.session);
+407-
+408:            const hashedSessionId = sessionService.hashSessionId(
+409-                req.sessionID,
+410-            );
+411-
+412-            /*
+413-             * Create the DB representation of the newly regenerated
+414-             * Express session.
+415-             */
+416-            try {
+417-                await sessionService.createSession(
+418-                    user.id,
+419-                    hashedSessionId,
+420-                    expiresAt,
+421-                );
+422-            } catch (dbError) {
+423-                await destroyAndClearSession(
+424-                    req,
+425-                    res,
+426-                    requestId,
+427-                    'login_session_destroy_after_db_create_failure',
+428-                );
+429-
+430-                logger.error({
+431-                    event: 'login_db_session_create_failed',
+432-                    requestId,
+433-                    errorName:
+434-                        dbError instanceof Error
+435-                            ? dbError.name
+436-                            : 'Error',
+437-                    errorCode:
+438-                        dbError &&
+439-                        typeof dbError.code === 'string'
+440-                            ? dbError.code
+441-                            : undefined,
+442-                });
+443-
+444-                return next(dbError);
+445-            }
+446-
+447-            /*
+448-             * Persist the Express session after the DB row exists.
+449-             */
+450-            try {
+451-                await callSessionMethod(req.session, 'save');
+452-            } catch (saveError) {
+453-                /*
+454-                 * Roll back the DB representation first.
+455-                 */
+456-                const revokeResult =
+457-                    await revokeDatabaseSession(
+458-                        hashedSessionId,
+459-                        requestId,
+460-                        'login_db_session_cleanup_failed',
+461-                    );
+462-
+463-                /*
+464-                 * Regardless of DB cleanup result, destroy the Express
+465-                 * session so the client cannot remain authenticated.
+466-                 */
+467-                await destroyAndClearSession(
+468-                    req,
+469-                    res,
+470-                    requestId,
+471-                    'login_session_destroy_after_save_failure',
+472-                );
+473-
+474-                if (!revokeResult.success) {
+475-                    logger.error({
+476-                        event: 'login_session_compensation_incomplete',
+477-                        requestId,
+478-                    });
+479-                }
+480-
+481-                logger.error({
+482-                    event: 'login_session_save_failed',
+483-                    requestId,
+484-                    errorName:
+485-                        saveError instanceof Error
+486-                            ? saveError.name
+487-                            : 'Error',
+488-                    errorCode:
+489-                        saveError &&
+490-                        typeof saveError.code === 'string'
+491-                            ? saveError.code
+492-                            : undefined,
+493-                });
+494-
+495-                return next(saveError);
+496-            }
+497-
+498-            /*
+499-             * No more authentication-sensitive operations should occur
+500-             * after save succeeds. The session pair is now established.
+501-             */
+502-            return sendSuccess(res, {
+503-                data: {
+504-                    user: toSafeUser(user),
+505-                },
+506-                message: 'Login successful',
+507-            });
+508-        } catch (sessionError) {
+509-            /*
+510-             * Covers failures occurring AFTER session regeneration but
+511-             * BEFORE the DB/session pair is fully established, including:
+512-             *
+513-             * - missing session
+514-             * - invalid user ID
+515-             * - expiry resolution failure
+516-             * - session ID hashing failure
+517-             * - unexpected session-store failures
+518-             *
+519-             * This is deliberately fail-closed.
+520-             */
+521-            await destroyAndClearSession(
+522-                req,
+523-                res,
+524-                requestId,
+525-                'login_session_cleanup_after_unexpected_failure',
+526-            );
+527-
+528-            return next(sessionError);
+--
+552-        errorName:
+553-            error instanceof Error
+554-                ? error.name
+555-                : 'Error',
+556-    });
+557-}
+558-
+559-        /*
+560-         * Idempotent logout:
+561-         * no session ID means there is nothing to revoke.
+562-         */
+563-        if (!sessionId) {
+564-            clearSessionCookie(req, res);
+565-
+566-            return sendSuccess(res, {
+567-                message: 'Logged out',
+568-            });
+569-        }
+570-
+571-        /*
+572-         * DB session identity is the hashed Express session ID.
+573-         * userId is NOT required for revocation.
+574-         *
+575-         * This is important because a stale/partially populated Express
+576-         * session must still be revocable.
+577-         */
+578-        let hashedSessionId;
+579-
+580-        try {
+581-            hashedSessionId =
+582:                sessionService.hashSessionId(sessionId);
+583-        } catch (error) {
+584-            /*
+585-             * A malformed server-generated session ID is an internal
+586-             * consistency failure, not a client authentication detail.
+587-             */
+588-            logger.error({
+589-                event: 'logout_session_id_hash_failed',
+590-                requestId,
+591-                errorName:
+592-                    error instanceof Error
+593-                        ? error.name
+594-                        : 'Error',
+595-                errorCode:
+596-                    error && typeof error.code === 'string'
+597-                        ? error.code
+598-                        : undefined,
+599-            });
+600-
+601-            /*
+602-             * Still destroy the Express session and clear the cookie.
+603-             */
+604-            await destroyAndClearSession(
+605-                req,
+606-                res,
+607-                requestId,
+608-                'logout_session_destroy_after_hash_failure',
+609-            );
+610-
+611-            return next(error);
+612-        }
+613-
+614-        /*
+615-         * Attempt DB revocation first, but never allow a DB failure to
+616-         * prevent Express-session destruction.
+617-         */
+618-        const revokeResult =
+619-            await revokeDatabaseSession(
+620-                hashedSessionId,
+621-                requestId,
+622-                'logout_db_revoke_failed',
+623-            );
+624-
+625-        /*
+626-         * Defense-in-depth:
+627-         * remove the authenticated claim before destruction.
+628-         */
+629-        
+630-
+631-        /*
+632-         * Express session destruction is mandatory regardless of whether
+633-         * DB revocation succeeded.
+634-         */
+635-        const destroyResult =
+636-            await destroyAndClearSession(
+637-                req,
+638-                res,
+639-                requestId,
+640-                'logout_session_destroy_failed',
+641-            );
+642-
+643-        /*
+644-         * Logout remains successful from the client's perspective because
+645-         * the authentication cookie/session has been invalidated locally.
+646-         *
+647-         * Any DB cleanup failure is observable through structured logs and
+648-         * can be handled by the session maintenance/cleanup process.
+649-         */
+650-        if (!revokeResult.success) {
+651-            logger.warn({
+652-                event: 'logout_completed_with_db_revoke_failure',
+653-                requestId,
+654-            });
+655-        }
+656-
+657-        if (!destroyResult.success) {
+658-            logger.warn({
+659-                event: 'logout_completed_with_session_destroy_failure',
+660-                requestId,
+661-            });
+662-        }
+663-
+664-        return sendSuccess(res, {
+665-            message: 'Logged out successfully',
+666-        });
+667-    } catch (error) {
+668-        return next(error);
+669-    }
+670-});
+671-
+672-export default router;
+673-export { router };

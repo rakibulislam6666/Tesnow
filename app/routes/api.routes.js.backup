@@ -1,0 +1,227 @@
+/**
+ * app/routes/api.routes.js
+ * API route composition layer for Tesnow
+ * RESTful API endpoints with versioning support
+ * 
+ * @module routes/api.routes
+ */
+
+import express from 'express';
+import { sendSuccess, sendError } from '../core/response.js';
+import { HTTP_STATUS } from '../core/constants.js';
+
+const router = express.Router();
+
+// ============================================================================
+// PUBLIC API RESOURCES
+// ============================================================================
+
+/**
+ * GET /posts
+ * List posts with filtering and pagination
+ * Future: authentication (optional), validation, controller
+ */
+router.get('/posts', async (req, res, next) => {
+    sendError(res, new Error('API posts list not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API posts list endpoint is under development',
+    });
+});
+
+/**
+ * GET /posts/:id
+ * Get a single post by ID
+ * Future: authentication (optional), controller
+ */
+router.get('/posts/:id', async (req, res, next) => {
+    sendError(res, new Error('API post by ID not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API post endpoint is under development',
+    });
+});
+
+/**
+ * GET /posts/slug/:slug
+ * Get a single post by slug
+ * Future: controller
+ */
+router.get('/posts/slug/:slug', async (req, res, next) => {
+    sendError(res, new Error('API post by slug not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API post by slug endpoint is under development',
+    });
+});
+
+/**
+ * GET /categories
+ * List categories
+ * Future: authentication (optional), controller
+ */
+router.get('/categories', async (req, res, next) => {
+    sendError(res, new Error('API categories list not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API categories endpoint is under development',
+    });
+});
+
+/**
+ * GET /categories/:id
+ * Get a single category
+ * Future: controller
+ */
+router.get('/categories/:id', async (req, res, next) => {
+    sendError(res, new Error('API category by ID not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API category endpoint is under development',
+    });
+});
+
+/**
+ * GET /tags
+ * List tags
+ * Future: authentication (optional), controller
+ */
+router.get('/tags', async (req, res, next) => {
+    sendError(res, new Error('API tags list not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API tags endpoint is under development',
+    });
+});
+
+/**
+ * GET /tags/:id
+ * Get a single tag
+ * Future: controller
+ */
+router.get('/tags/:id', async (req, res, next) => {
+    sendError(res, new Error('API tag by ID not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API tag endpoint is under development',
+    });
+});
+
+/**
+ * GET /search
+ * Search across posts, categories, tags
+ * Future: validation, search service, controller
+ */
+router.get('/search', async (req, res, next) => {
+    sendError(res, new Error('API search not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API search endpoint is under development',
+    });
+});
+
+// ============================================================================
+// AUTHENTICATED USER RESOURCES
+// ============================================================================
+
+/**
+ * GET /me
+ * Get current authenticated user
+ * Future: authentication middleware, controller
+ */
+router.get('/me', async (req, res, next) => {
+    sendError(res, new Error('API current user not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API current user endpoint is under development',
+    });
+});
+
+/**
+ * GET /user/posts
+ * Get current user's posts
+ * Future: authentication, pagination, controller
+ */
+router.get('/user/posts', async (req, res, next) => {
+    sendError(res, new Error('API user posts not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API user posts endpoint is under development',
+    });
+});
+
+/**
+ * GET /user/bookmarks
+ * Get current user's bookmarks
+ * Future: authentication, pagination, controller
+ */
+router.get('/user/bookmarks', async (req, res, next) => {
+    sendError(res, new Error('API user bookmarks not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API user bookmarks endpoint is under development',
+    });
+});
+
+/**
+ * POST /user/bookmarks/:postId
+ * Add a bookmark
+ * Future: authentication, validation, controller
+ */
+router.post('/user/bookmarks/:postId', async (req, res, next) => {
+    sendError(res, new Error('API add bookmark not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API add bookmark endpoint is under development',
+    });
+});
+
+/**
+ * DELETE /user/bookmarks/:postId
+ * Remove a bookmark
+ * Future: authentication, authorization, controller
+ */
+router.delete('/user/bookmarks/:postId', async (req, res, next) => {
+    sendError(res, new Error('API remove bookmark not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API remove bookmark endpoint is under development',
+    });
+});
+
+/**
+ * GET /user/notifications
+ * Get current user's notifications
+ * Future: authentication, pagination, controller
+ */
+router.get('/user/notifications', async (req, res, next) => {
+    sendError(res, new Error('API user notifications not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API user notifications endpoint is under development',
+    });
+});
+
+/**
+ * PATCH /user/notifications/:id/read
+ * Mark a notification as read
+ * Future: authentication, authorization, controller
+ */
+router.patch('/user/notifications/:id/read', async (req, res, next) => {
+    sendError(res, new Error('API mark notification read not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API mark notification read endpoint is under development',
+    });
+});
+
+/**
+ * POST /user/notifications/read-all
+ * Mark all notifications as read
+ * Future: authentication, controller
+ */
+router.post('/user/notifications/read-all', async (req, res, next) => {
+    sendError(res, new Error('API mark all notifications read not yet implemented'), {
+        statusCode: HTTP_STATUS.NOT_IMPLEMENTED,
+        message: 'API mark all notifications read endpoint is under development',
+    });
+});
+
+// ============================================================================
+// FUTURE API VERSIONING (placeholders)
+// ============================================================================
+
+// This router can be mounted under a version prefix (e.g., /api/v1).
+// Future versions can be added with separate routers.
+
+// ============================================================================
+// EXPORTS
+// ============================================================================
+
+export default router;
+export { router };
